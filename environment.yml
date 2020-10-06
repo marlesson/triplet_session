@@ -1,0 +1,7 @@
+name: triplet-session
+channels:
+- anaconda
+dependencies:
+- python=3.6
+- pyarrow=1.0.1
+- pip

@@ -1,0 +1,607 @@
+import luigi
+import pandas as pd
+import numpy as np
+import os
+from mars_gym.data.task import BasePrepareDataFrames, BasePySparkTask
+from mars_gym.data.utils import DownloadDataset
+from mars_gym.data.dataset import (
+    InteractionsDataset,
+    InteractionsWithNegativeItemGenerationDataset,
+)
+import random
+from typing import Tuple, List, Union, Callable, Optional, Set, Dict, Any
+from mars_gym.meta_config import *
+
+from pyspark import SparkContext
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.functions import collect_set, collect_list, lit, sum, udf, concat_ws, col, count, abs, date_format, \
+    from_utc_timestamp, expr, min
+from pyspark.sql.functions import col, udf, size
+from pyspark.sql.types import *
+from pyspark.sql import functions as F
+from pyspark.sql import Window
+from pyspark.sql.functions import explode, posexplode
+from itertools import chain
+
+OUTPUT_PATH: str = os.environ[
+    "OUTPUT_PATH"
+] if "OUTPUT_PATH" in os.environ else os.path.join("output")
+BASE_DIR: str = os.path.join(OUTPUT_PATH, "yoochoose")
+DATASET_DIR: str = os.path.join(OUTPUT_PATH, "yoochoose", "dataset")
+
+BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "yoochoose", "yoochoose", 'yoochoose-clicks.dat')
+
+## AUX
+pad_history = F.udf(
+    lambda arr, size: [0] * (size - len(arr[:-1][:size])) + arr[:-1][:size], 
+    ArrayType(IntegerType())
+)
+
+def sample_items(item, item_list, size_available_list):
+    return random.sample(item_list, size_available_list - 1) + [item]
+
+def udf_sample_items(item_list, size_available_list):
+    return udf(lambda item: sample_items(item, item_list, size_available_list), ArrayType(IntegerType()))
+
+
+def concat(type):
+    def concat_(*args):
+        return list(set(chain.from_iterable((arg if arg else [] for arg in args))))
+    return udf(concat_, ArrayType(type))
+
+#####
+
+
+################################## Supervised ######################################
+
+
+class SessionPrepareDataset(BasePySparkTask):
+    sample_limit: int = luigi.IntParameter(default=1375000)
+    history_window: int = luigi.IntParameter(default=10)
+    size_available_list: int = luigi.IntParameter(default=100)
+    minimum_interactions: int = luigi.IntParameter(default=5)
+    
+    def output(self):
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "dataset_prepared_sample={}_win={}_list={}_min_i={}.csv"\
+                    .format(self.sample_limit, self.history_window, self.size_available_list, self.minimum_interactions),))
+
+    def add_history(self, df):
+        
+        w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rangeBetween(Window.currentRow, 5)
+
+        df = df.withColumn(
+            'ItemIDHistory', F.collect_list('ItemID').over(w)
+        ).where(size(col("ItemIDHistory")) >= 2)#\
+
+        df = df.withColumn('ItemIDHistory', pad_history(df.ItemIDHistory, lit(self.history_window)))
+
+        return df
+
+    def filter(self, df):
+        df_item    = df.groupBy("ItemID").count()
+        df_item    = df_item.filter(col('count') >= self.minimum_interactions)
+
+        df_session    = df.groupBy("SessionID").count()
+        df_session    = df_session.filter(col('count') >= 3)
+
+        df = df \
+            .join(df_item, "ItemID", how="inner") \
+            .join(df_session, "SessionID", how="inner")
+
+        return df
+
+    def add_available_items(self, df):
+        all_items = list(df.select("ItemID").dropDuplicates().toPandas()["ItemID"])
+
+        df = df.withColumn('AvailableItems', udf_sample_items(all_items, self.size_available_list)(col("ItemID")))
+
+        return df
+
+    def main(self, sc: SparkContext, *args):
+        os.makedirs(DATASET_DIR, exist_ok=True)
+
+        #  ["SessionID", "Timestamp", "ItemID", "Category"]
+        #  DataFrame[_c0: int, _c1: timestamp, _c2: int, _c3: string]                      
+
+
+        spark    = SparkSession(sc)
+        df = spark.read.csv(BASE_DATASET_FILE, header=False, inferSchema=True)\
+                .withColumnRenamed("_c0", "SessionID")\
+                .withColumnRenamed("_c1", "Timestamp")\
+                .withColumnRenamed("_c2", "ItemID")\
+                .withColumnRenamed("_c3", "Category")\
+                .orderBy(col('Timestamp'))\
+                .limit(self.sample_limit)
+        
+        df = self.filter(df)
+        df = self.add_history(df)
+        df = self.add_available_items(df)
+
+        df = df.withColumn('visit',lit(1))
+
+        df.toPandas().to_csv(self.output().path, index=False)
+
+class SessionInteractionDataFrame(BasePrepareDataFrames):
+    sample_limit: int = luigi.IntParameter(default=1375000)
+    history_window: int = luigi.IntParameter(default=10)
+    size_available_list: int = luigi.IntParameter(default=100)
+
+    def requires(self):
+        return SessionPrepareDataset(sample_limit=self.sample_limit, history_window=self.history_window, size_available_list=self.size_available_list)
+
+    @property
+    def timestamp_property(self) -> str:
+        return "Timestamp"
+
+    @property
+    def dataset_dir(self) -> str:
+        return DATASET_DIR
+
+    @property
+    def read_data_frame_path(self) -> pd.DataFrame:
+        return self.input().path
+
+    def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+        return df
+
+    def time_train_test_split(
+        self, df: pd.DataFrame, test_size: float
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        df[self.timestamp_property] = pd.to_datetime(df[self.timestamp_property])
+
+        if self.timestamp_property:
+            df = df.sort_values(self.timestamp_property)
+        
+        days=1    
+        cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=days)
+
+        df[df[self.timestamp_property] <= cutoff_date.date()]
+
+        #size = len(df)
+        #cut = int(size - size * test_size)
+
+        return df[df[self.timestamp_property] <= cutoff_date.date()], df[df[self.timestamp_property] > cutoff_date.date()]
+#################################  Triplet ##############################
+
+
+class CreateIntraSessionInteractionDataset(BasePySparkTask):
+    sample_limit: int = luigi.IntParameter(default=1375000)
+    history_window: int = luigi.IntParameter(default=10)
+    size_available_list: int = luigi.IntParameter(default=100)
+    minimum_interactions: int = luigi.FloatParameter(default=5)
+    max_itens_per_session: int = luigi.FloatParameter(default=15)
+
+    # def requires(self):
+    #     return SessionPrepareDataset(sample_limit=self.sample_limit, history_window=self.history_window, size_available_list=self.size_available_list)
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "indexed_intra_session_train_%d_w=%d_l=%d_m=%d_s=%d" % (self.sample_limit, self.history_window, 
+            self.size_available_list, self.minimum_interactions, self.max_itens_per_session)))
+
+    def get_df_tuple_probs(self, df):
+
+        df_tuple_count  = df.groupby("ItemID_A","ItemID_B").count()
+        df_count        = df.groupby("ItemID_A").count()\
+                            .withColumnRenamed("count", "total")\
+                            .withColumnRenamed("ItemID_A", "_ItemID_A")
+
+        df_join         = df_tuple_count.join(df_count, df_tuple_count.ItemID_A == df_count._ItemID_A).cache()
+        df_join         = df_join.withColumn("prob", col("count")/col("total"))
+
+        df_join  = df_join.select("ItemID_A", 'ItemID_B', 'count', 'total', 'prob')\
+                    .withColumnRenamed("ItemID_A", "_ItemID_A")\
+                    .withColumnRenamed("ItemID_B", "_ItemID_B")\
+                    .withColumnRenamed("count", "total_ocr_dupla")\
+                    .withColumnRenamed("total", "total_ocr").cache()
+
+        return df_join
+
+    def add_positive_interactions(self, df):
+
+        df_a = df\
+            .groupby("ItemID_A")\
+            .agg(F.collect_set("ItemID_B").alias("sub_a"))
+
+        df_b = df\
+            .groupby("ItemID_B")\
+            .agg(F.collect_set("ItemID_A").alias("sub_b"))
+
+        df = df.join(df_a, "ItemID_A").join(df_b, "ItemID_B").cache()
+
+        concat_int_arrays = concat(IntegerType())
+        df = df.withColumn("sub_a_b", concat_int_arrays("sub_a", "sub_b"))#.show(truncate=False)
+        
+        return df
+        
+    def main(self, sc: SparkContext, *args):
+        os.makedirs(DATASET_DIR, exist_ok=True)
+
+        #parans
+        min_itens_per_session  = 2
+        max_itens_per_session  = self.max_itens_per_session
+        min_itens_interactions = 3 # Tupla interactions
+        max_relative_pos       = 3
+
+        spark    = SparkSession(sc)
+        df = spark.read.csv(BASE_DATASET_FILE, header=False, inferSchema=True)\
+                .withColumnRenamed("_c0", "SessionID")\
+                .withColumnRenamed("_c1", "Timestamp")\
+                .withColumnRenamed("_c2", "ItemID")\
+                .withColumnRenamed("_c3", "Category")\
+                .orderBy(col('Timestamp'))\
+                .limit(self.sample_limit)
+
+        df       = df.groupby("SessionID").agg(
+                    min("Timestamp").alias("Timestamp"),
+                    collect_list("ItemID").alias("ItemIDs"),
+                    count("ItemID").alias("total"))
+
+
+        # Filter Interactions
+        df = df.filter(df.total >= min_itens_per_session)\
+                .filter(df.total <=  max_itens_per_session).cache()
+
+        # Filter position in list
+        df_pos = df.select(col('SessionID').alias('_SessionID'),
+                                    posexplode(df.ItemIDs))
+
+        # Explode A
+        df = df.withColumn("ItemID_A", explode(df.ItemIDs))
+        df = df.join(df_pos,
+                    (df.SessionID == df_pos._SessionID) & (df.ItemID_A == df_pos.col))\
+                .select('SessionID', 'Timestamp', 'ItemID_A', 'pos', 'ItemIDs')\
+                .withColumnRenamed('pos', 'pos_A')
+
+        # Explode B
+        df = df.withColumn("ItemID_B", explode(df.ItemIDs))
+        df = df.join(df_pos,
+                    (df.SessionID == df_pos._SessionID) & (df.ItemID_B == df_pos.col))\
+                .withColumnRenamed('pos', 'pos_B')
+
+        df = df.withColumn("relative_pos", abs(df.pos_A - df.pos_B))
+
+
+        # Filter  distincts
+        df = df.select('SessionID', 'Timestamp', 'ItemID_A', 'pos_A', 'ItemID_B', 'pos_B', 'relative_pos')\
+                .distinct()\
+                .filter(df.ItemID_A != df.ItemID_B).cache()
+
+        # Filter duplicates
+        #udf_join = F.udf(lambda s,x,y : "_".join(sorted([str(s), str(x),str(y)])) , StringType())
+        #df = df.withColumn('key', udf_join('SessionID', 'ItemID_A','ItemID_B'))
+        #df = df.dropDuplicates(["key"])
+
+        # Calculate and filter probs ocorrence
+        df_probs = self.get_df_tuple_probs(df)
+
+
+        df = df.join(df_probs, (df.ItemID_A == df_probs._ItemID_A) & (df.ItemID_B == df_probs._ItemID_B))
+        df = df.filter(col("total_ocr_dupla") >= min_itens_interactions)\
+               .filter(col("relative_pos") <= max_relative_pos)
+
+        # Add positive interactoes
+        df = self.add_positive_interactions(df)
+
+        df = df.select("SessionID", 'Timestamp', 'ItemID_A', 'pos_A',
+                        'ItemID_B', 'pos_B', 'relative_pos', 
+                        'total_ocr', 'prob', 'sub_a_b')\
+                .dropDuplicates(['ItemID_A', 'ItemID_B'])
+
+        df.write.parquet(self.output().path)
+
+class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
+    max_itens_per_session: int = luigi.FloatParameter(default=15)
+    sample_limit: int = luigi.IntParameter(default=1375000)
+
+    def requires(self):
+        return CreateIntraSessionInteractionDataset(
+                        max_itens_per_session=self.max_itens_per_session,
+                        sample_limit=self.sample_limit)
+
+    @property
+    def timestamp_property(self) -> str:
+        return "Timestamp"
+
+    @property
+    def dataset_dir(self) -> str:
+        return DATASET_DIR
+
+    def read_data_frame(self) -> pd.DataFrame:
+        df = pd.read_parquet(self.read_data_frame_path)#.sample(200000)
+        df["ItemID"]        = df.ItemID_A
+
+        return df
+
+    @property
+    def read_data_frame_path(self) -> pd.DataFrame:
+        return self.input().path
+
+    def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+        df["visit"]         = 1.0
+        df['sub_a_b']       = df['sub_a_b'].apply(list)
+
+        return df
+
+    def time_train_test_split(
+        self, df: pd.DataFrame, test_size: float
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        df[self.timestamp_property] = pd.to_datetime(df[self.timestamp_property])
+
+        if self.timestamp_property:
+            df = df.sort_values(self.timestamp_property)
+        
+        days=1    
+        cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=days)
+
+        df[df[self.timestamp_property] <= cutoff_date.date()]
+
+        #size = len(df)
+        #cut = int(size - size * test_size)
+
+        return df[df[self.timestamp_property] <= cutoff_date.date()], df[df[self.timestamp_property] > cutoff_date.date()]
+
+################################## Interactions ######################################
+
+class TripletWithNegativeListDataset(InteractionsDataset):
+        
+
+    def __init__(self,
+                data_frame: pd.DataFrame,
+                embeddings_for_metadata: Optional[Dict[Any, np.ndarray]],
+                project_config: ProjectConfig,
+                index_mapping: Dict[str, Dict[Any, int]],
+                *args,
+                **kwargs) -> None:
+        data_frame = data_frame[data_frame[project_config.output_column.name] > 0]
+        super().__init__(data_frame, embeddings_for_metadata, project_config, index_mapping)
+        #
+        self.all_items = list(index_mapping[project_config.item_column.name].values())
+        self._negative_proportion = 1
+        #np.array(list(range(self._data_frame[self._input_columns[0]].max())) )
+        self.__getitem__([1])
+
+    def __len__(self) -> int:
+        return self._data_frame.shape[0]
+
+    def _get_negatives(self, all_positive):
+        sub_negative = np.setdiff1d(self.all_items, all_positive)
+        np.random.shuffle(sub_negative)
+        
+        return sub_negative
+
+    def __getitem__(self, indices: Union[int, List[int]]) -> Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray],
+                                                                   list]:
+        if isinstance(indices, int):
+            indices = [indices]
+
+        rows: pd.Series = self._data_frame.iloc[indices]
+        
+        item_arch      = rows[self._input_columns[2].name].values
+        item_positive  = rows[self._input_columns[3].name].values
+        all_positives  = rows[self._input_columns[4].name].values
+        output         = rows[self._project_config.output_column.name].values
+        
+        if self._project_config.auxiliar_output_columns:
+            output = tuple(rows[auxiliar_output_column.name].values
+                                            for auxiliar_output_column in self._project_config.auxiliar_output_columns)
+        
+        if self._negative_proportion > 0:
+            item_negative = np.array(
+                [self._get_negatives(all_positive)[:1000]
+                for all_positive in all_positives], dtype=np.int64)
+            return (item_arch, item_positive, item_negative),output#), output
+        else:
+            return (item_arch, item_positive), output
+
+    # def __getitem__(
+    #     self, indices: Union[int, List[int], slice]
+    # ) -> Tuple[Tuple[np.ndarray, ...], Union[np.ndarray, Tuple[np.ndarray, ...]]]:
+    #     if isinstance(indices, int):
+    #         indices = [indices]
+    #     rows: pd.Series = self._data_frame.iloc[indices]
+
+    #     inputs = tuple(
+    #         self._convert_dtype(rows[column.name].values, column.type)
+    #         for column in self._input_columns
+    #     )
+    #     if (
+    #         self._project_config.item_is_input
+    #         and self._embeddings_for_metadata is not None
+    #     ):
+    #         item_indices = inputs[self._item_input_index]
+    #         inputs += tuple(
+    #             self._embeddings_for_metadata[column.name][item_indices]
+    #             for column in self._project_config.metadata_columns
+    #         )
+
+    #     output = self._convert_dtype(
+    #         rows[self._project_config.output_column.name].values,
+    #         self._project_config.output_column.type,
+    #     )
+    #     if self._project_config.auxiliar_output_columns:
+    #         output = tuple([output]) + tuple(
+    #             self._convert_dtype(rows[column.name].values, column.type)
+    #             for column in self._project_config.auxiliar_output_columns
+    #         )
+    #     # print(inputs)
+    #     return inputs, output
+
+# #################################
+
+# class PrepareDataset(luigi.Task):
+#     history_window: int = luigi.IntParameter(default=5)
+#     size_available_list: int = luigi.IntParameter(default=100)
+#     sample_limit: int = luigi.IntParameter(default=1375000)
+#     # def requires(self):
+#     #     return DownloadDataset(dataset="yoochoose", output_path=OUTPUT_PATH)
+
+#     def output(self):
+#         return luigi.LocalTarget(os.path.join(DATASET_DIR, "dataset_prepared.csv",))
+
+#     def filter(self, df):
+#         print("filter...")
+#         # Filter interactions
+
+#         df["Step"] = 1
+#         df["Step"] = df.groupby(["SessionID"])["Step"].apply(lambda x: x.cumsum())
+
+#         # Filters only interactions that have history
+#         df = df[df.Step > 1]
+
+#         # Filters only buy interactions
+#         #df = df[df.Quantity > 0]
+
+#         return df
+
+#     def add_history_buys(self, df):
+#         print("add_history_buys...")
+#         df_list = []
+#         for g, df_g in df.groupby("SessionID"):
+#             list_of_indexes = []
+#             df_g["ItemID"].rolling(self.history_window, min_periods=1).apply(
+#                 (lambda x: list_of_indexes.append(x.astype(int).tolist()) or 0),
+#                 raw=False,
+#             )
+#             df_g["ItemID_history"] = list_of_indexes
+#             df_g["ItemID_history"] = df_g["ItemID_history"].shift(1)
+
+#             # add padding
+#             Item_prev = (
+#                 df_g["ItemID_history"]
+#                 .apply(lambda x: [] if x is np.nan else x)
+#                 .apply(
+#                     lambda x: ([""] * (self.history_window - len(x)) + x)[
+#                         : self.history_window
+#                     ]
+#                 )
+#             )
+#             df_list.append(Item_prev)
+
+#         df["ItemID_history"] = pd.concat(df_list)
+
+#         return df
+
+#     def add_available_items(self, df):
+#         print("add_available_items...")
+#         all_items = list(np.unique(list(df["ItemID"])))
+#         df["available_items"] = df["ItemID"].apply(
+#             lambda item_id: random.sample(all_items, self.size_available_list - 1)
+#             + [item_id]
+#         )
+#         return df
+
+#     def add_info_timestamp(self, df, datetime_column="Timestamp"):
+#         print("add_info_timestamp...")
+#         df[datetime_column] = pd.to_datetime(df[datetime_column])
+#         df[datetime_column + "_dayofweek"] = df[datetime_column].dt.dayofweek
+
+#         return df
+
+#     def run(self):
+#         os.makedirs(DATASET_DIR, exist_ok=True)
+#         df = (
+#             pd.read_csv(BASE_DATASET_FILE, parse_dates=[1], header=None)
+#             .dropna()
+#             .sort_values([1])
+#         )
+#         df.columns = ["SessionID", "Timestamp", "ItemID", "Category"]
+#         df["ItemID"] = df["ItemID"].astype(str)
+#         df["SessionID"] = df["SessionID"].astype(str)
+
+#         # Filter sample size
+#         df = df.iloc[-self.sample_limit:]
+#         print("Dataset: ", df.shape)
+#         print("{}:{}".format(df.iloc[0].Timestamp, df.iloc[-1].Timestamp))
+
+#         # Add history information
+#         df = self.add_history_buys(df)
+
+#         # Filter Sessions
+#         df = self.filter(df)
+
+#         # Add timestamp information
+#         df = self.add_info_timestamp(df)
+
+#         # Add list of available items per interaction
+#         df = self.add_available_items(df)
+
+#         df.to_csv(self.output().path, index="Timestamp")
+
+
+# class PrepareInteractionDataFrame(BasePrepareDataFrames):
+#     history_window: int = luigi.IntParameter(default=5)
+#     size_available_list: int = luigi.IntParameter(default=100)
+
+#     def requires(self):
+#         return PrepareDataset(
+#             history_window=self.history_window,
+#             size_available_list=self.size_available_list,
+#         )
+
+#     @property
+#     def timestamp_property(self) -> str:
+#         return "Timestamp"
+
+
+#     @property
+#     def dataset_dir(self) -> str:
+#         return DATASET_DIR
+
+#     @property
+#     def read_data_frame_path(self) -> pd.DataFrame:
+#         return self.input().path
+
+#     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+#         df["visit"] = 1
+
+#         return df
+
+
+# #################################################
+# class LoadAndPrepareDataset(luigi.Task):
+#     def requires(self):
+#         return DownloadDataset(dataset="processed_yoochoose", output_path=OUTPUT_PATH)
+
+#     def output(self):
+#         return luigi.LocalTarget(os.path.join(DATASET_DIR, "processed_dataset.csv",))
+
+#     def add_info_timestamp(self, df, datetime_column="Timestamp"):
+#         df[datetime_column] = pd.to_datetime(df[datetime_column])
+#         df[datetime_column + "_dayofweek"] = df[datetime_column].dt.dayofweek
+
+#         return df
+
+#     def run(self):
+#         os.makedirs(DATASET_DIR, exist_ok=True)
+#         df = pd.read_csv(self.input()[0].path, parse_dates=[0])
+#         df["ItemID"] = df["ItemID"].astype(str)
+#         df["SessionID"] = df["SessionID"].astype(str)
+
+#         # Add timestamp information
+#         df = self.add_info_timestamp(df)
+
+#         # Add target interaction
+#         df["buy"] = (df["Quantity"] > 0).astype(int)
+
+#         df.to_csv(self.output().path)
+
+
+# class InteractionDataFrame(BasePrepareDataFrames):
+#     def requires(self):
+#         return LoadAndPrepareDataset()
+
+#     @property
+#     def timestamp_property(self) -> str:
+#         return "Timestamp"
+
+#     @property
+#     def dataset_dir(self) -> str:
+#         return DATASET_DIR
+
+#     @property
+#     def read_data_frame_path(self) -> pd.DataFrame:
+#         return self.input().path
+
+#     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+#         return df
