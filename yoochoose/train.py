@@ -19,13 +19,14 @@ TORCH_LOSS_FUNCTIONS = dict(
 
 
 class SupervisedTraining(SupervisedModelTraining):
-    load_index_mapping_path: str = luigi.Parameter(default=None)
+    pass
+    # load_index_mapping_path: str = luigi.Parameter(default=None)
 
-    @property
-    def index_mapping_path(self) -> Optional[str]:
-        if self.load_index_mapping_path:
-            return get_index_mapping_path(self.load_index_mapping_path)
-        return get_index_mapping_path(self.output().path)
+    # @property
+    # def index_mapping_path(self) -> Optional[str]:
+    #     if self.load_index_mapping_path:
+    #         return get_index_mapping_path(self.load_index_mapping_path)
+    #     return get_index_mapping_path(self.output().path)
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet"], default="relative_triplet")

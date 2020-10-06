@@ -28,7 +28,8 @@ class SimpleLinearModel(RecommenderModule):
 
         if self.path_item_embedding:
             weights = np.loadtxt(self.path_item_embedding)
-            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float())              
+            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=False)
+            #self.item_embeddings.weight.requires_grad = False       
         else:
             self.item_embeddings = nn.Embedding(self._n_items, n_factors)
 
