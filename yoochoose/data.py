@@ -16,7 +16,7 @@ from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.functions import collect_set, collect_list, lit, sum, udf, concat_ws, col, count, abs, date_format, \
-    from_utc_timestamp, expr, min
+    from_utc_timestamp, expr, min, max
 from pyspark.sql.functions import col, udf, size
 from pyspark.sql.types import *
 from pyspark.sql import functions as F
@@ -156,12 +156,9 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         days=1    
         cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=days)
 
-        df[df[self.timestamp_property] <= cutoff_date.date()]
-
-        #size = len(df)
-        #cut = int(size - size * test_size)
-
         return df[df[self.timestamp_property] <= cutoff_date.date()], df[df[self.timestamp_property] > cutoff_date.date()]
+
+
 #################################  Triplet ##############################
 
 
@@ -172,12 +169,13 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
     minimum_interactions: int = luigi.IntParameter(default=5)
     max_itens_per_session: int = luigi.IntParameter(default=15)
     min_itens_interactions: int = luigi.IntParameter(default=3)
+    max_relative_pos: int = luigi.IntParameter(default=3)
     # def requires(self):
     #     return SessionPrepareDataset(sample_limit=self.sample_limit, history_window=self.history_window, size_available_list=self.size_available_list)
 
     def output(self):
-        return luigi.LocalTarget(os.path.join(DATASET_DIR, "indexed_intra_session_train_%d_w=%d_l=%d_m=%d_s=%d_i=%d" % (self.sample_limit, self.history_window, 
-            self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions)))
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "indexed_intra_session_train_%d_w=%d_l=%d_m=%d_s=%d_i=%d_p=%d" % (self.sample_limit, self.history_window, 
+            self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions, self.max_relative_pos)))
 
     def get_df_tuple_probs(self, df):
 
@@ -221,7 +219,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         min_itens_per_session  = 2
         max_itens_per_session  = self.max_itens_per_session
         min_itens_interactions = self.min_itens_interactions # Tupla interactions
-        max_relative_pos       = 3
+        max_relative_pos       = self.max_relative_pos
 
         spark    = SparkSession(sc)
         df = spark.read.csv(BASE_DATASET_FILE, header=False, inferSchema=True)\
@@ -233,7 +231,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
                 .limit(self.sample_limit)
 
         df       = df.groupby("SessionID").agg(
-                    min("Timestamp").alias("Timestamp"),
+                    max("Timestamp").alias("Timestamp"),
                     collect_list("ItemID").alias("ItemIDs"),
                     count("ItemID").alias("total"))
 
@@ -293,12 +291,14 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     max_itens_per_session: int = luigi.IntParameter(default=15)
     sample_limit: int = luigi.IntParameter(default=1375000)
     min_itens_interactions: int = luigi.IntParameter(default=3)
+    max_relative_pos: int = luigi.IntParameter(default=3)
 
     def requires(self):
         return CreateIntraSessionInteractionDataset(
                         max_itens_per_session=self.max_itens_per_session,
                         sample_limit=self.sample_limit,
-                        min_itens_interactions=self.min_itens_interactions)
+                        min_itens_interactions=self.min_itens_interactions,
+                        max_relative_pos=self.max_relative_pos)
 
     @property
     def timestamp_property(self) -> str:
@@ -358,6 +358,7 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         super().__init__(data_frame, embeddings_for_metadata, project_config, index_mapping)
         #
         self.all_items = list(index_mapping[project_config.item_column.name].values())
+        self.len_all_items = len(self.all_items)
         self._negative_proportion = 1
         #np.array(list(range(self._data_frame[self._input_columns[0]].max())) )
         self.__getitem__([1])
@@ -366,10 +367,14 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         return self._data_frame.shape[0]
 
     def _get_negatives(self, all_positive):
-        sub_negative = np.setdiff1d(self.all_items, all_positive)
+        sub_negative = self.setdiff(self.all_items, all_positive)
         np.random.shuffle(sub_negative)
 
         return sub_negative
+
+    def setdiff(self, ticks, new_ticks):
+        #return np.setdiff1d(ticks, new_ticks)
+        return list(set(ticks) - set(new_ticks))
 
     def __getitem__(self, indices: Union[int, List[int]]) -> Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray],
                                                                    list]:
@@ -388,8 +393,8 @@ class TripletWithNegativeListDataset(InteractionsDataset):
                                             for auxiliar_output_column in self._project_config.auxiliar_output_columns)
         
         if self._negative_proportion > 0:
-            len_all_items = len(self.all_items)
-            min_items = np.min([len_all_items-2*len(all_positive) for all_positive in all_positives])
+            
+            min_items = np.min([self.len_all_items-2*len(all_positive) for all_positive in all_positives])
             item_negative = np.array(
                 [self._get_negatives(all_positive)[:np.min([1000, min_items])]
                 for all_positive in all_positives], dtype=np.int64)
