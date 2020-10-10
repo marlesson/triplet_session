@@ -28,10 +28,10 @@ from datetime import datetime, timedelta
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"
 ] if "OUTPUT_PATH" in os.environ else os.path.join("output")
-BASE_DIR: str = os.path.join(OUTPUT_PATH, "yoochoose")
-DATASET_DIR: str = os.path.join(OUTPUT_PATH, "yoochoose", "dataset")
+BASE_DIR: str = os.path.join(OUTPUT_PATH, "globo")
+DATASET_DIR: str = os.path.join(OUTPUT_PATH, "globo", "dataset")
 
-BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "yoochoose", "yoochoose", 'yoochoose-clicks.dat')
+BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "globo", "archive", 'clicks', 'clicks', '*.csv')
 
 ## AUX
 pad_history = F.udf(
@@ -113,13 +113,13 @@ class SessionPrepareDataset(BasePySparkTask):
 
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=False, inferSchema=True)\
-                .withColumnRenamed("_c0", "SessionID")\
-                .withColumnRenamed("_c1", "Timestamp")\
-                .withColumnRenamed("_c2", "ItemID")\
-                .withColumnRenamed("_c3", "Category")\
-                .orderBy(col('Timestamp'))
-        
+        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = df.withColumnRenamed("session_id", "SessionID")\
+            .withColumnRenamed("click_timestamp", "Timestamp_")\
+            .withColumnRenamed("click_article_id", "ItemID")\
+            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
+            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
+                    
         # Drop duplicate item in that same session
         df = df.dropDuplicates(['SessionID', 'ItemID'])
 
@@ -231,13 +231,13 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         max_relative_pos       = self.max_relative_pos
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=False, inferSchema=True)\
-                .withColumnRenamed("_c0", "SessionID")\
-                .withColumnRenamed("_c1", "Timestamp")\
-                .withColumnRenamed("_c2", "ItemID")\
-                .withColumnRenamed("_c3", "Category")\
-                .orderBy(col('Timestamp'))
-
+        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = df.withColumnRenamed("session_id", "SessionID")\
+            .withColumnRenamed("click_timestamp", "Timestamp_")\
+            .withColumnRenamed("click_article_id", "ItemID")\
+            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
+            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
+               
 
         # filter date
         max_timestamp = df.select(max(col('Timestamp'))).collect()[0]['max(Timestamp)']
@@ -386,7 +386,6 @@ class TripletWithNegativeListDataset(InteractionsDataset):
     def _get_negatives(self, all_positive):
         sub_negative = self.setdiff(self.all_items, all_positive)
         np.random.shuffle(sub_negative)
-
         return sub_negative
 
     def setdiff(self, ticks, new_ticks):
@@ -410,15 +409,17 @@ class TripletWithNegativeListDataset(InteractionsDataset):
                                             for auxiliar_output_column in self._project_config.auxiliar_output_columns)
         
         if self._negative_proportion > 0:
-
+            
+            min_items = np.min([self.len_all_items-2*len(all_positive) for all_positive in all_positives])
+            
             item_negative = [self._get_negatives(all_positive) for all_positive in all_positives]
             min_item      = np.min([len(l) for l in item_negative])
             item_negative = np.array([l[:min_item] for l in item_negative])
 
-            # min_items = np.min([self.len_all_items-2*len(all_positive) for all_positive in all_positives])
-            # item_negative = np.array(
-            #     [self._get_negatives(all_positive)[:np.min([1000, min_items])]
-            #     for all_positive in all_positives], dtype=np.int64)
+            #item_negative = np.array(
+            #    [self._get_negatives(all_positive)[:np.min([1000, min_items])]
+            #    for all_positive in all_positives], dtype=np.int64)
+            #from IPython import embed; embed()
             return (item_arch, item_positive, item_negative),output#), output
         else:
             return (item_arch, item_positive), output

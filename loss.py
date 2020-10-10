@@ -20,12 +20,86 @@ def triplet_acc(y_pred: torch.Tensor, y_true: torch.Tensor):
     p=2.
     eps=1e-6
     
-    anchor, positive, negative = y_pred
+    anchor, positive, negative  = y_pred
     positive_distance = F.pairwise_distance(anchor, positive, p, eps)
     negative_distance = F.pairwise_distance(anchor, negative, p, eps)
 
     return (positive_distance < negative_distance).view(-1).float()
 
+
+@metrics.default_for_key("triplet_mse")
+@running_mean
+@mean
+@metrics.lambda_metric("triplet_mse", on_epoch=False)
+def triplet_mse(y_pred: torch.Tensor, y_true: torch.Tensor):
+    anchor, positive, negative, relative_pos_pred = y_pred
+    relative_pos, total_ocr, prob = y_true
+    
+    #relative_pos = 1-F.tanh(relative_pos.float()+1)
+    return F.mse_loss(relative_pos_pred.float(), relative_pos.float())
+
+
+@metrics.default_for_key("triplet_dist")
+@running_mean
+@mean
+@metrics.lambda_metric("triplet_dist", on_epoch=False)
+def triplet_dist(y_pred: torch.Tensor, y_true: torch.Tensor):
+    p=2.
+    eps=1e-6
+    margin=1
+    swap=True
+    c = 100
+
+    anchor, positive, negative = y_pred
+    relative_pos, total_ocr, prob = y_true
+
+    triplet_loss = nn.TripletMarginLoss(reduction="none", margin=margin, swap=swap)
+    triplet_loss = triplet_loss(anchor, positive, negative)
+    #triplet_loss = (c/total_ocr.float())*triplet_loss
+
+    return triplet_loss
+
+class ContrastiveLoss(_Loss):
+    """
+    Contrastive loss
+    Takes embeddings of two samples and a target label == 1 if samples are from the same class and label == 0 otherwise
+    """
+
+    def __init__(self, c=500, margin=1, eps=1e-6, size_average=None, 
+                 reduce=None, reduction="mean"):
+        super().__init__(size_average, reduce, reduction)
+        self.eps = eps
+        self.margin = margin
+        self.c  = c
+
+    def constrative_target(self, anchor, positive, negative):
+        batch_size = anchor.shape[0]
+        
+        target = (torch.rand(batch_size, device=anchor.device) > 0.5)#.float()
+        output2 = torch.ones(anchor.shape, device=anchor.device)
+        
+        positive_idx = torch.masked_select(torch.arange(0, batch_size, device=anchor.device), target)
+        negative_idx = torch.masked_select(torch.arange(0, batch_size, device=anchor.device), ~target)
+
+        output2[positive_idx] = positive[positive_idx]
+        output2[negative_idx] = negative[negative_idx]
+
+        return anchor, output2, target
+
+
+    def forward(self, anchor, positive, negative, dot_arch_pos, relative_pos, total_ocr, prob):
+        output1, output2, target = self.constrative_target(anchor, positive, negative)
+
+        distances = (output2 - output1).pow(2).sum(1)  # squared distances
+        loss = 0.5 * (target.float() * distances +
+                        (1 + -1 * target).float() * F.relu(self.margin - (distances + self.eps).sqrt()).pow(2))
+
+        loss = (self.c/total_ocr.float())*loss
+
+        if self.reduction == "mean":
+            return loss.mean()
+        else:
+            return loss.sum()
 
 class BayesianPersonalizedRankingTripletLoss(_Loss):
     r"""Creates a criterion that measures the triplet loss given an input
@@ -101,7 +175,7 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
             return loss.sum()
         elif self.reduction == "none":
             return loss
-            
+
 class RelativeTripletLoss(_Loss):
     def __init__(self, c=100, p=2., margin=1, eps=1e-6, swap=False, size_average=None,
                  reduce=None, reduction="mean", triplet_loss="triplet_margin"):
@@ -111,6 +185,7 @@ class RelativeTripletLoss(_Loss):
         self.swap = swap
         self.margin = margin
         self.c  = c
+        self.mse = nn.MSELoss(reduction="none")
 
         if triplet_loss == "triplet_margin":
             self.triplet_loss = nn.TripletMarginLoss(p=self.p, reduction="none", margin=self.margin, swap=self.swap)
@@ -120,12 +195,10 @@ class RelativeTripletLoss(_Loss):
             raise NotImplementedError
 
     def forward(self, anchor, positive, negative, relative_pos, total_ocr, prob):
-        loss = self.triplet_loss(anchor, positive, negative)
+        triplet_loss = self.triplet_loss(anchor, positive, negative)
+        #triplet_loss = triplet_loss/(torch.log2(relative_pos.float()+1))
+        loss = (self.c/total_ocr.float())*triplet_loss
         
-        loss = (self.c/total_ocr.float())*loss
-
-        #loss = (loss*(1-prob)) / (1 + torch.log(relative_pos.float()))
-
         if self.reduction == "mean":
             return loss.mean()
         else:
