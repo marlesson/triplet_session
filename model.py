@@ -21,7 +21,6 @@ import torch
 import torch.nn as nn
 
 
-
 class EmbeddingDropout(nn.Module):
     def __init__(self, p: float = 0.5,) -> None:
         super().__init__()
@@ -281,23 +280,3 @@ class TripletNet(RecommenderModule):
         
         #return arch_item_emb, positive_item_emb, negative_item_emb, dot_arch_pos
 
-class RandomPolicy(BanditPolicy):
-    def __init__(self, reward_model: nn.Module, seed: int = 42) -> None:
-        super().__init__(None)
-        self._rng = RandomState(seed)
-
-    def _select_idx(
-        self,
-        arm_indices: List[int],
-        arm_contexts: Tuple[np.ndarray, ...] = None,
-        arm_scores: List[float] = None,
-        pos: int = 0,
-    ) -> Union[int, Tuple[int, float]]:
-
-        n_arms = len(arm_indices)
-
-        arm_probas = np.ones(n_arms) / n_arms
-
-        action = self._rng.choice(n_arms, p=arm_probas)
-
-        return action

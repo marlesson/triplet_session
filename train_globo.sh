@@ -41,16 +41,136 @@ PYTHONPATH="."  luigi  \
 --obs ""
 
 
+TripletTraining____mars_gym_model_b____c66ebd7d94
+
+
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.DotModel \
+--recommender-extra-params '{"n_factors": 100, "freeze_embedding": false, "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c66ebd7d94/item_embeddings.npy"}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c66ebd7d94' \
+--early-stopping-min-delta 0.0001 \
+--negative-proportion 0.5 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss", "acc"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 100
+
+
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.DotModel \
+--recommender-extra-params '{"n_factors": 100, "freeze_embedding": true, "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c66ebd7d94/item_embeddings.npy"}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c66ebd7d94' \
+--early-stopping-min-delta 0.0001 \
+--negative-proportion 0.5 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss", "acc"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 100
+
+
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.DotModel \
+--recommender-extra-params '{"n_factors": 100, "freeze_embedding": true, "path_item_embedding": false}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c66ebd7d94' \
+--early-stopping-min-delta 0.0001 \
+--negative-proportion 0.5 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss", "acc"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 100
+
+mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____f7a9ac7da6 --only-new-interactions --only-exist-items
 
 
 
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.MostPopularModel \
+--recommender-extra-params '{}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--negative-proportion 0.0 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 1
+
+PYTHONPATH="."  luigi  \
+--module train MostPopularTraining  \
+--project globo.config.sample_globo_with_negative_sample \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--run-evaluate  \
+--sample-size-eval 1000
+
+PYTHONPATH="."  luigi  \
+--module train RandomTraining  \
+--project globo.config.sample_globo_with_negative_sample \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--run-evaluate  \
+--sample-size-eval 1000
+
+PYTHONPATH="."  luigi  \
+--module train CoOccurrenceTraining  \
+--project globo.config.sample_globo_with_negative_sample \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--run-evaluate  \
+--sample-size-eval 1000
+
+PYTHONPATH="."  luigi  \
+--module train IKNNTraining  \
+--project globo.config.sample_globo_with_negative_sample \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--run-evaluate  \
+--sample-size-eval 1000
 
 
 
 mars-gym run supervised \
 --project globo.config.sample_globo_with_negative_sample \
 --recommender-module-class model.DotModel \
---recommender-extra-params '{"n_factors": 100, "path_item_embedding": false, "freeze_embedding": false}' \
+--recommender-extra-params '{"n_factors": 100,  "freeze_embedding": true, "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b/item_embeddings.npy"}' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
 --load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b' \
 --early-stopping-min-delta 0.0001 \
@@ -66,43 +186,15 @@ mars-gym run supervised \
 --batch-size 128 \
 --epochs 30
 
-mars-gym run supervised \
---project globo.config.sample_globo_with_negative_sample \
---recommender-module-class model.DotModel \
---recommender-extra-params '{"n_factors": 100, "freeze_embedding": false, "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b/item_embeddings.npy"}' \
---data-frames-preparation-extra-params '{"sample_days": 16, "column_stratification": "SessionID"}' \
---load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b' \
---early-stopping-min-delta 0.0001 \
---negative-proportion 0.5 \
---test-size 0.01 \
---test-split-type time \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss", "acc"]' \
---generator-workers 10  \
---run-evaluate  \
---sample-size-eval 1000 \
---batch-size 128 \
---epochs 30
 
-mars-gym run supervised \
---project globo.config.sample_globo_with_negative_sample \
---recommender-module-class model.DotModel \
---recommender-extra-params '{"n_factors": 100,  "freeze_embedding": true, "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b/item_embeddings.npy"}' \
---data-frames-preparation-extra-params '{"sample_days": 16, "column_stratification": "SessionID"}' \
---load-index-mapping-path '/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____eafd46d19b' \
---early-stopping-min-delta 0.0001 \
---negative-proportion 0.5 \
---test-size 0.01 \
---test-split-type time \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss", "acc"]' \
---generator-workers 10  \
---run-evaluate  \
---sample-size-eval 1000 \
---batch-size 128 \
---epochs 30
+
+
+
+
+
+
+
+
 
 
 PYTHONPATH="."  luigi  \
