@@ -1,3 +1,6 @@
+# best .23
+mars-gym run supervised --project globo.config.sample_globo_with_negative_sample --recommender-module-class model.DotModel --recommender-extra-params '{"n_factors": 100, "dropout": 0.1, "path_item_embedding": false, "freeze_embedding": false}' --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' --early-stopping-min-delta 0.0001 --negative-proportion 0.8 --test-size 0.01 --test-split-type time --dataset-split-method column --learning-rate 0.001 --metrics='["loss", "acc"]' --generator-workers 10  --run-evaluate  --sample-size-eval 1000 --batch-size 500 --epochs 100 --obs "norm 2"
+
 mars-gym run supervised \
 --project globo.config.sample_globo_with_negative_sample \
 --recommender-module-class model.DotModel \
@@ -16,6 +19,8 @@ mars-gym run supervised \
 --batch-size 128 \
 --epochs 30
 
+
+mars-gym run supervised --project globo.config.sample_globo_with_negative_sample --recommender-module-class model.MatrixFactorizationModel --recommender-extra-params '{"n_factors": 100, "dropout": 0.2, "path_item_embedding": false, "freeze_embedding": false}' --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' --early-stopping-min-delta 0.0001 --negative-proportion 0.8 --test-size 0.01 --test-split-type time --dataset-split-method column --learning-rate 0.001 --metrics='["loss", "acc"]' --generator-workers 10  --run-evaluate  --sample-size-eval 1000 --batch-size 500 --epochs 100 --obs "embs mean" --optimizer-params '{"weight_decay": 1e-5}'
 
 
 PYTHONPATH="."  luigi  \
@@ -106,6 +111,42 @@ mars-gym run supervised \
 mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____f7a9ac7da6 --only-new-interactions --only-exist-items
 
 
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.DotModel \
+--recommender-extra-params '{"n_factors": 100, "dropout": 0.2, "path_item_embedding": false, "freeze_embedding": false}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--early-stopping-min-delta 0.0001 \
+--negative-proportion 0.8 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss", "acc"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 500
+
+
+mars-gym run supervised \
+--project globo.config.sample_globo_with_negative_sample \
+--recommender-module-class model.MatrixFactorizationModel \
+--recommender-extra-params '{"n_factors": 100, "dropout": 0.2, "path_item_embedding": false, "freeze_embedding": false}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--early-stopping-min-delta 0.0001 \
+--negative-proportion 0.8 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss", "acc"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--epochs 500
 
 mars-gym run supervised \
 --project globo.config.sample_globo_with_negative_sample \

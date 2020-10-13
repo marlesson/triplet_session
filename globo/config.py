@@ -4,6 +4,7 @@ from mars_gym.data.dataset import (
 )
 from mars_gym.meta_config import *
 from globo import data
+import dataset
 
 # sample_globo = ProjectConfig(
 #     base_dir=data.BASE_DIR,
@@ -37,10 +38,26 @@ sample_globo_with_negative_sample = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
+
+globo_mf_bpr = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=dataset.MFWithBPRDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="AvailableItems",
+    other_input_columns=[
+        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+    ],
+    output_column=Column("visit", IOType.NUMBER),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)
+
 triplet_globo = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.IntraSessionInteractionsDataFrame,
-    dataset_class=data.TripletWithNegativeListDataset,
+    dataset_class=dataset.TripletWithNegativeListDataset,
     user_column=Column("SessionID", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",

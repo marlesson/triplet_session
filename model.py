@@ -21,6 +21,17 @@ import torch
 import torch.nn as nn
 
 
+class LinearWeightedAvg(nn.Module):
+    def __init__(self, n_inputs):
+        super(LinearWeightedAvg, self).__init__()
+        self.weights = nn.ParameterList([nn.Parameter(torch.randn(1)) for i in range(n_inputs)])
+
+    def forward(self, input):
+        res = 0
+        for emb_idx, emb in enumerate(input):
+            res += emb * self.weights[emb_idx]
+        return res
+        
 class EmbeddingDropout(nn.Module):
     def __init__(self, p: float = 0.5,) -> None:
         super().__init__()
@@ -113,6 +124,112 @@ class SimpleLinearModel(RecommenderModule):
         out = torch.sigmoid(self.dense(x))
         return out
 
+class GRURecModel(RecommenderModule):
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        n_factors: int,
+        path_item_embedding: str,
+        dropout: float,
+        freeze_embedding: bool
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+
+        if self.path_item_embedding:
+            weights = np.loadtxt(self.path_item_embedding)
+            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
+            #self.item_embeddings.weight.requires_grad = False       
+        else:
+            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+
+        self.weight_init = lecun_normal_init
+        self.apply(self.init_weights)
+
+    def init_weights(self, module: nn.Module):
+        if type(module) == nn.Linear:
+            self.weight_init(module.weight)
+            module.bias.data.fill_(0.1)
+            
+    def flatten(self, input):
+        return input.view(input.size(0), -1)
+
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+
+    def forward(self, session_ids, item_ids, item_history_ids):
+        return out
+
+
+
+
+class MatrixFactorizationModel(RecommenderModule):
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        n_factors: int,
+        path_item_embedding: str,
+        dropout: float,
+        freeze_embedding: bool
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        self.hist_size = 10
+
+        self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
+        #self.hist_embeddings.weight[0] = nn.Parameter(torch.zeros(n_factors))
+        if self.path_item_embedding:
+            weights = np.loadtxt(self.path_item_embedding)
+            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
+            #self.item_embeddings.weight.requires_grad = False       
+        else:
+            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.linear_w_emb = nn.Linear(n_factors*self.hist_size, n_factors)
+        self.weight_emb =  nn.Parameter(torch.randn(self.hist_size, 1))
+        self.use_normalize = True
+        self.weight_init = lecun_normal_init
+        self.apply(self.init_weights)
+
+    def init_weights(self, module: nn.Module):
+        if type(module) == nn.Linear:
+            self.weight_init(module.weight)
+            module.bias.data.fill_(0.1)
+            
+    def flatten(self, input):
+        return input.view(input.size(0), -1)
+
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+
+    def forward(self, session_ids = None, item_ids = None, item_history_ids = None, negative_item_ids = None):
+        # Item emb
+        item_emb = self.normalize(self.item_embeddings(item_ids))
+
+        # Item History embs
+        hist_emb = self.normalize(self.hist_embeddings(item_history_ids), 2)
+
+        print(item_ids)
+        print(negative_item_ids)
+        #hist_emb_mean = torch.stack([self.linear_w_avg(emb) for emb in hist_emb], dim=0)
+
+        #hist_mean_emb = hist_emb.mean(1)
+
+        #hist_mean_emb = self.linear_w_emb(self.flatten(hist_emb))
+
+        hist_mean_emb = torch.matmul(hist_emb.permute(0, 2, 1), self.weight_emb)
+        hist_mean_emb = self.flatten(hist_mean_emb)
+
+        out = (item_emb * hist_mean_emb).sum(1)
+        out = torch.sigmoid(out)
+
+        return out
+
 class DotModel(RecommenderModule):
     def __init__(
         self,
@@ -120,6 +237,7 @@ class DotModel(RecommenderModule):
         index_mapping: Dict[str, Dict[Any, int]],
         n_factors: int,
         path_item_embedding: str,
+        dropout: float,
         freeze_embedding: bool
     ):
         super().__init__(project_config, index_mapping)
@@ -133,13 +251,14 @@ class DotModel(RecommenderModule):
             self.item_embeddings = nn.Embedding(self._n_items, n_factors)
 
         num_dense = 10
-
+        
         self.dense = nn.Sequential(
+            nn.Dropout(p=dropout),
             nn.Linear(num_dense, int(num_dense / 2)),
             nn.SELU(),
             nn.Linear(int(num_dense / 2), 1),
         )
-
+        self.use_normalize = True
         self.weight_init = lecun_normal_init
         self.apply(self.init_weights)
 
@@ -151,15 +270,21 @@ class DotModel(RecommenderModule):
     def flatten(self, input):
         return input.view(input.size(0), -1)
 
+
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+
     def forward(self, session_ids, item_ids, item_history_ids):
         # Item emb
-        item_emb = self.item_embeddings(item_ids)
+        item_emb = self.normalize(self.item_embeddings(item_ids))
 
         # Item History embs
-        hist_emb = self.item_embeddings(item_history_ids)
+        hist_emb = self.normalize(self.item_embeddings(item_history_ids))
         
         dot_prod = torch.matmul(item_emb.unsqueeze(1), hist_emb.permute(0, 2, 1))
-        #raise(Exception(item_emb.shape, hist_emb.shape, dot_prod.shape))
+
         dot_prod = self.flatten(dot_prod)
         
         ## DayofWeek Emb
