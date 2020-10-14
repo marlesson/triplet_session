@@ -20,7 +20,30 @@ mars-gym run supervised \
 --epochs 30
 
 
-mars-gym run supervised --project globo.config.sample_globo_with_negative_sample --recommender-module-class model.MatrixFactorizationModel --recommender-extra-params '{"n_factors": 100, "dropout": 0.2, "path_item_embedding": false, "freeze_embedding": false}' --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' --early-stopping-min-delta 0.0001 --negative-proportion 0.8 --test-size 0.01 --test-split-type time --dataset-split-method column --learning-rate 0.001 --metrics='["loss", "acc"]' --generator-workers 10  --run-evaluate  --sample-size-eval 1000 --batch-size 500 --epochs 100 --obs "embs mean" --optimizer-params '{"weight_decay": 1e-5}'
+#BPR Bom
+mars-gym run supervised --project globo.config.globo_mf_bpr --recommender-module-class model.MatrixFactorizationModel --recommender-extra-params '{"n_factors": 100, "dropout": 0.2, "path_item_embedding": false, "freeze_embedding": false, "weight_decay": 1e-3}' --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' --early-stopping-min-delta 0.0001 --negative-proportion 0.8 --test-size 0.01 --test-split-type time --dataset-split-method column --learning-rate 0.001 --metrics='["loss"]' --generator-workers 10  --run-evaluate  --sample-size-eval 1000 --batch-size 500 --epochs 100 --optimizer-params '{"weight_decay": 1e-5}' --loss-function dummy --obs "wd"
+
+
+
+
+
+mars-gym run supervised \
+--project globo.config.globo_rnn \
+--recommender-module-class model.NARMModel \
+--recommender-extra-params '{"n_factors": 100, "hidden_size": 100, "n_layers": 1}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionID"}' \
+--early-stopping-min-delta 0.0001 \
+--test-size 0.01 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 10  \
+--run-evaluate  \
+--sample-size-eval 1000 \
+--batch-size 128 \
+--loss-function ce \
+--epochs 1
 
 
 PYTHONPATH="."  luigi  \

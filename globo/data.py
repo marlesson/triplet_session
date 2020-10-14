@@ -108,10 +108,6 @@ class SessionPrepareDataset(BasePySparkTask):
     def main(self, sc: SparkContext, *args):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
-        #  ["SessionID", "Timestamp", "ItemID", "Category"]
-        #  DataFrame[_c0: int, _c1: timestamp, _c2: int, _c3: string]                      
-
-
         spark    = SparkSession(sc)
         df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
         df = df.withColumnRenamed("session_id", "SessionID")\
@@ -165,7 +161,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         
         cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=self.days_test)
 
-        return df[df[self.timestamp_property] <= cutoff_date.date()], df[df[self.timestamp_property] > cutoff_date.date()]
+        return df[df[self.timestamp_property] < cutoff_date], df[df[self.timestamp_property] >= cutoff_date]
 
 
 #################################  Triplet ##############################

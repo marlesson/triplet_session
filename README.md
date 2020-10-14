@@ -13,21 +13,22 @@
 
 ## BaseModels
 
-* RecentPopular
+* Random (ok)
+* MostPopular (ok)
+* Co-ocurrence (ok)
+* KNN (ok)
+* MF-BPR (ok) https://github.com/sh0416/bpr/blob/master/train.py
+* DotProd (ok)
+* NARM: (ok)  https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch
 * GRU4Rec
-* DotProd
-* NLP DotProd
-* NARM: https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch
-* 
-
 
 ## Papers
 
 * https://arxiv.org/pdf/1711.04725.pdf
 * https://dl.acm.org/doi/10.1145/3270323.3270328
 * A Survey on Session-based Recommender Systems
-
-
+* https://arxiv.org/pdf/1205.2618.pdf
+* https://arxiv.org/pdf/1706.03847.pdf
 
 ## Triplet
 

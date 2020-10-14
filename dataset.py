@@ -46,7 +46,7 @@ class MFWithBPRDataset(Dataset):
         ]
         self._embeddings_for_metadata = embeddings_for_metadata
         self._data_key = kwargs['data_key']
-        self.num_item = len(self._index_mapping[self._project_config.item_column.name])
+        self.num_item = max(self._index_mapping[self._project_config.item_column.name].values()) + 1
         self.__getitem__([1,2])
 
     def __len__(self) -> int:
@@ -94,7 +94,7 @@ class MFWithBPRDataset(Dataset):
                 for column in self._project_config.auxiliar_output_columns
             )
 
-        if self._data_key == 'val_data':
+        if self._data_key == 'test_data':
           return inputs, output
         else:
           column = self._input_columns[1]

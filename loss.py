@@ -176,6 +176,24 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
         elif self.reduction == "none":
             return loss
 
+class BPRLoss(_Loss):
+    def __init__(self, p=2., eps=1e-6, swap=False, size_average=None,
+                 reduce=None, reduction="mean"):
+        super().__init__(size_average, reduce, reduction)
+        self.p = p
+        self.eps = eps
+        self.swap = swap
+
+    def forward(self, anchor, positive, negative):
+
+        loss = 1 - F.sigmoid(positive_distance - negative_distance)
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        elif self.reduction == "none":
+            return loss    
+
 class RelativeTripletLoss(_Loss):
     def __init__(self, c=100, p=2., margin=1, eps=1e-6, swap=False, size_average=None,
                  reduce=None, reduction="mean", triplet_loss="triplet_margin"):

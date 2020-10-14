@@ -1,6 +1,6 @@
 
 from mars_gym.simulation.training import SupervisedModelTraining, DummyTraining
-from loss import RelativeTripletLoss, ContrastiveLoss
+from loss import RelativeTripletLoss, ContrastiveLoss, BPRLoss
 import torch
 import torch.nn as nn
 import luigi
@@ -21,6 +21,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse import csr_matrix
 from pandas.api.types import CategoricalDtype
 from sklearn.metrics.pairwise import cosine_similarity
+from plot import plot_tsne
 
 TORCH_LOSS_FUNCTIONS = dict(
     mse=nn.MSELoss,
@@ -28,10 +29,10 @@ TORCH_LOSS_FUNCTIONS = dict(
     bce=nn.BCELoss,
     mlm=nn.MultiLabelMarginLoss,
     relative_triplet=RelativeTripletLoss,    
-    contrastive_loss=ContrastiveLoss
+    contrastive_loss=ContrastiveLoss,
+    bpr_loss=BPRLoss
 )
 
-from plot import plot_tsne
 
 class RandomTraining(DummyTraining):
     '''
@@ -47,12 +48,6 @@ class RandomTraining(DummyTraining):
         scores   = list(np.random.rand(len(item_idx)))
 
         return scores
-
-    def run_evaluate_task(self) -> None:
-        os.system(
-            "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
-            f"--model-task-class train.RandomTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
-        )     
 
 class MostPopularTraining(DummyTraining):
     '''
@@ -70,12 +65,6 @@ class MostPopularTraining(DummyTraining):
         scores   = self.item_counts.loc[item_idx].fillna(0).values
 
         return scores
-
-    def run_evaluate_task(self) -> None:
-        os.system(
-            "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
-            f"--model-task-class train.MostPopularTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
-        )     
 
 class CoOccurrenceTraining(DummyTraining):
     '''
@@ -126,13 +115,11 @@ class CoOccurrenceTraining(DummyTraining):
         except:
             return 0
 
-
-    def run_evaluate_task(self) -> None:
-        os.system(
-            "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
-            f"--model-task-class train.CoOccurrenceTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
-        )     
-
+    # def run_evaluate_task(self) -> None:
+    #     os.system(
+    #         "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
+    #         f"--model-task-class train.CoOccurrenceTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
+    #     )     
 
 class IKNNTraining(DummyTraining):
     '''
@@ -182,12 +169,11 @@ class IKNNTraining(DummyTraining):
         except:
             return 0
 
-
-    def run_evaluate_task(self) -> None:
-        os.system(
-            "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
-            f"--model-task-class train.IKNNTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
-        )     
+    # def run_evaluate_task(self) -> None:
+    #     os.system(
+    #         "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
+    #         f"--model-task-class train.IKNNTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
+    #     )     
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet", "contrastive_loss"], default="relative_triplet")
@@ -222,3 +208,9 @@ class TripletTraining(SupervisedModelTraining):
 
     def _get_loss_function(self):
         return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)
+
+class BPRTraining(SupervisedModelTraining):
+    loss_function:  str = luigi.ChoiceParameter(choices=["bpr_loss"], default="bpr_loss")
+
+    def _get_loss_function(self):
+        return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)    

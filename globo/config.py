@@ -6,24 +6,22 @@ from mars_gym.meta_config import *
 from globo import data
 import dataset
 
-# sample_globo = ProjectConfig(
-#     base_dir=data.BASE_DIR,
-#     prepare_data_frames_task=data.PrepareInteractionDataFrame,
-#     dataset_class=InteractionsDataset,
-#     user_column=Column("SessionID", IOType.INDEXABLE),
-#     item_column=Column("ItemID", IOType.INDEXABLE),
-#     timestamp_column_name="Timestamp",
-#     available_arms_column_name="available_items",
-#     other_input_columns=[
-#         Column("Timestamp_dayofweek", IOType.NUMBER),
-#         Column("Step", IOType.NUMBER),
-#         Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
-#     ],
-#     output_column=Column("visit", IOType.NUMBER),
-#     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
-# )
+globo_interaction = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=InteractionsDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="AvailableItems",
+    other_input_columns=[
+        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+    ],
+    output_column=Column("visit", IOType.NUMBER),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)
 
-sample_globo_with_negative_sample = ProjectConfig(
+globo_interaction_with_negative_sample = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.SessionInteractionDataFrame,
     dataset_class=InteractionsWithNegativeItemGenerationDataset,
@@ -35,6 +33,22 @@ sample_globo_with_negative_sample = ProjectConfig(
         Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
     output_column=Column("visit", IOType.NUMBER),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)
+
+
+globo_rnn = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=dataset.InteractionsDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="AvailableItems",
+    other_input_columns=[
+        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+    ],
+    output_column=Column("ItemID", IOType.INDEXABLE),
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
@@ -54,7 +68,7 @@ globo_mf_bpr = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
-triplet_globo = ProjectConfig(
+globo_triplet = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.IntraSessionInteractionsDataFrame,
     dataset_class=dataset.TripletWithNegativeListDataset,
