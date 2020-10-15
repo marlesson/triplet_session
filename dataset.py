@@ -144,6 +144,8 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         item_arch      = rows[self._input_columns[2].name].values
         item_positive  = rows[self._input_columns[3].name].values
         all_positives  = rows[self._input_columns[4].name].values
+        all_pos        = rows[self._project_config.auxiliar_output_columns[0].name].values
+
         output         = rows[self._project_config.output_column.name].values
         
         if self._project_config.auxiliar_output_columns:
@@ -152,16 +154,10 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         
         if self._negative_proportion > 0:
             
-            min_items = np.min([self.len_all_items-2*len(all_positive) for all_positive in all_positives])
-            
             item_negative = [self._get_negatives(all_positive) for all_positive in all_positives]
             min_item      = np.min([len(l) for l in item_negative])
             item_negative = np.array([l[:min_item] for l in item_negative])
 
-            #item_negative = np.array(
-            #    [self._get_negatives(all_positive)[:np.min([1000, min_items])]
-            #    for all_positive in all_positives], dtype=np.int64)
-            #from IPython import embed; embed()
-            return (item_arch, item_positive, item_negative),output#), output
+            return (item_arch, item_positive, item_negative, all_pos),output#), output
         else:
-            return (item_arch, item_positive), output
+            return (item_arch, item_positive, all_pos), output

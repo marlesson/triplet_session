@@ -20,7 +20,7 @@ def triplet_acc(y_pred: torch.Tensor, y_true: torch.Tensor):
     p=2.
     eps=1e-6
     
-    anchor, positive, negative  = y_pred
+    anchor, positive, negative, _  = y_pred
     positive_distance = F.pairwise_distance(anchor, positive, p, eps)
     negative_distance = F.pairwise_distance(anchor, negative, p, eps)
 
@@ -50,7 +50,7 @@ def triplet_dist(y_pred: torch.Tensor, y_true: torch.Tensor):
     swap=True
     c = 100
 
-    anchor, positive, negative = y_pred
+    anchor, positive, negative, _ = y_pred
     relative_pos, total_ocr, prob = y_true
 
     triplet_loss = nn.TripletMarginLoss(reduction="none", margin=margin, swap=swap)
@@ -161,18 +161,16 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
         self.swap = swap
         self.margin = margin
 
-    def forward(self, anchor, positive, negative):
-        positive_distance = F.pairwise_distance(anchor, positive, self.p, self.eps)
+    def forward(self, anchor, positive, negative, pos):
+        positive_distance = F.pairwise_distance(anchor, positive, self.p, self.eps)/(torch.log2(pos.float()+1))
         negative_distance = F.pairwise_distance(anchor, negative, self.p, self.eps)
 
         if self.swap:
             positive_negative_distance = F.pairwise_distance(positive, negative, self.p, self.eps)
             negative_distance = torch.min(negative_distance, positive_negative_distance)
 
-        #loss = F.logsigmoid(positive_distance - negative_distance)
         loss = -F.logsigmoid(negative_distance - positive_distance)
 
-        # loss = 1 - F.sigmoid(positive_distance - negative_distance)
         if self.reduction == "mean":
             return loss.mean()
         elif self.reduction == "sum":
@@ -199,6 +197,12 @@ class BPRLoss(_Loss):
             return loss    
 
 class RelativeTripletLoss(_Loss):
+    '''
+        * Unbias Popularity
+        * Relative position distance
+        * l2 regularization
+        * BPR
+    '''
     def __init__(self, c=100, p=2., margin=1, eps=1e-6, l2_reg=1e-6, swap=False, size_average=None,
                  reduce=None, reduction="mean", triplet_loss="triplet_margin"):
         super().__init__(size_average, reduce, reduction)
@@ -217,10 +221,8 @@ class RelativeTripletLoss(_Loss):
         else:
             raise NotImplementedError
 
-    def forward(self, anchor, positive, negative, relative_pos, total_ocr, prob):
-        loss = self.triplet_loss(anchor, positive, negative)
-        
-        #triplet_loss = triplet_loss/(torch.log2(relative_pos.float()+1))
+    def forward(self, anchor, positive, negative, pos, relative_pos, total_ocr, prob):
+        loss = self.triplet_loss(anchor, positive, negative, relative_pos)
         
         # Discount Popularity Bias
         popularity_bias = (self.c/total_ocr.float()) if self.c > 0 else 1
@@ -228,10 +230,7 @@ class RelativeTripletLoss(_Loss):
         
         # Regularize L2 Weigth emb
         regularization = self.l2_reg * (anchor.norm(dim=0).pow(2).sum() + positive.norm(dim=0).pow(2).sum() + negative.norm(dim=0).pow(2).sum())/3
-        #print(loss.mean(), regularization.mean())
         loss =  loss + regularization    
-
-        
 
         if self.reduction == "mean":
             return loss.mean()

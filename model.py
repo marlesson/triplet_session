@@ -207,13 +207,19 @@ class NARMModel(RecommenderModule):
         n_factors: int,
         n_layers: int,
         hidden_size: int,
+        path_item_embedding: str,
+        freeze_embedding: bool,        
+        dropout: float        
     ):
         super().__init__(project_config, index_mapping)
 
         self.hidden_size = hidden_size
         self.n_layers = n_layers
         self.embedding_dim = n_factors
-        self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
+        #self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
+
+        self.emb = load_embedding(self._n_items, self.embedding_dim, path_item_embedding, freeze_embedding)
+
         self.emb_dropout = nn.Dropout(0.25)
         self.gru = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers)
         self.a_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
@@ -284,8 +290,8 @@ class MatrixFactorizationModel(RecommenderModule):
         self.hist_size = hist_size
         self.weight_decay = weight_decay # 0.025#1e-5
 
-        self.pos_embeddings = nn.Embedding(5, n_factors)
-        self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
+        #self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
         self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
 
         self.linear_w_emb = nn.Linear(n_factors*self.hist_size, n_factors)
@@ -421,10 +427,12 @@ class TripletNet(RecommenderModule):
 
         self.use_normalize   = use_normalize
         self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.pos_embeddings = nn.Embedding(10, n_factors)
+
         self.negative_random = negative_random
         self.dropout = dropout
-        self.dropout_emb = EmbeddingDropout(dropout)
-        self.dropout_emb2 = nn.Dropout(p=dropout)
+        #self.dropout_emb = EmbeddingDropout(dropout)
+        self.dropout_emb = nn.Dropout(p=dropout)
         #self.weight_init = lecun_normal_init
         self.init_weights()
         #self.apply(self.init_weights)
@@ -490,21 +498,29 @@ class TripletNet(RecommenderModule):
 
     def forward(self, item_ids: torch.Tensor, 
                       positive_item_ids: torch.Tensor,
-                      negative_list_idx: List[torch.Tensor] = None) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]:
+                      negative_list_idx: List[torch.Tensor] = None,
+                      pos_relative = None) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]:
         
+        pos_relative_emb = self.normalize(self.pos_embeddings(pos_relative.long()))
+
         #arch_item_emb = self.embedded_dropout(self.item_embeddings, item_ids.long(), dropout=self.dropout if self.training else 0)
         arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
 
         #arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
         #positive_item_emb = self.embedded_dropout(self.item_embeddings, positive_item_ids.long(), dropout=self.dropout if self.training else 0)
         positive_item_emb = self.normalize(self.item_embeddings(positive_item_ids.long()))
-        
+        #positive_item_emb = positive_item_emb - pos_relative_emb
+
+        #raise(Exception(positive_item_emb.shape, pos_relative_emb.shape, arch_item_emb.shape))
         negative_item_ids = self.select_negative_item_emb(item_ids, positive_item_ids, negative_list_idx)
         #negative_item_emb = self.embedded_dropout(self.item_embeddings, negative_item_ids.long(), dropout=self.dropout if self.training else 0)
         negative_item_emb = self.normalize(self.item_embeddings(negative_item_ids.long()))
         
         #return self.dropout_emb(arch_item_emb, positive_item_emb, negative_item_emb)
-        return self.dropout_emb2(arch_item_emb), self.dropout_emb2(positive_item_emb), self.dropout_emb2(negative_item_emb)
+        return self.dropout_emb(arch_item_emb), \
+                self.dropout_emb(positive_item_emb), \
+                self.dropout_emb(negative_item_emb),\
+                positive_item_emb
         
         #return arch_item_emb, positive_item_emb, negative_item_emb, dot_arch_pos
 
