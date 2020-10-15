@@ -153,12 +153,13 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
         http://www.iis.ee.ic.ac.uk/%7Evbalnt/shallow_descr/TFeat_paper.pdf
     """
 
-    def __init__(self, p=2., eps=1e-6, swap=False, size_average=None,
+    def __init__(self, p=2., eps=1e-6, swap=False, size_average=None, margin=1,
                  reduce=None, reduction="mean"):
         super().__init__(size_average, reduce, reduction)
         self.p = p
         self.eps = eps
         self.swap = swap
+        self.margin = margin
 
     def forward(self, anchor, positive, negative):
         positive_distance = F.pairwise_distance(anchor, positive, self.p, self.eps)
@@ -168,7 +169,10 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
             positive_negative_distance = F.pairwise_distance(positive, negative, self.p, self.eps)
             negative_distance = torch.min(negative_distance, positive_negative_distance)
 
-        loss = 1 - F.sigmoid(positive_distance - negative_distance)
+        #loss = F.logsigmoid(positive_distance - negative_distance)
+        loss = -F.logsigmoid(negative_distance - positive_distance)
+
+        # loss = 1 - F.sigmoid(positive_distance - negative_distance)
         if self.reduction == "mean":
             return loss.mean()
         elif self.reduction == "sum":
@@ -195,7 +199,7 @@ class BPRLoss(_Loss):
             return loss    
 
 class RelativeTripletLoss(_Loss):
-    def __init__(self, c=100, p=2., margin=1, eps=1e-6, swap=False, size_average=None,
+    def __init__(self, c=100, p=2., margin=1, eps=1e-6, l2_reg=1e-6, swap=False, size_average=None,
                  reduce=None, reduction="mean", triplet_loss="triplet_margin"):
         super().__init__(size_average, reduce, reduction)
         self.p = p
@@ -204,19 +208,31 @@ class RelativeTripletLoss(_Loss):
         self.margin = margin
         self.c  = c
         self.mse = nn.MSELoss(reduction="none")
+        self.l2_reg = l2_reg
 
         if triplet_loss == "triplet_margin":
             self.triplet_loss = nn.TripletMarginLoss(p=self.p, reduction="none", margin=self.margin, swap=self.swap)
         elif triplet_loss == "bpr_triplet":
-            self.triplet_loss = BayesianPersonalizedRankingTripletLoss(p=self.p, reduction="none")
+            self.triplet_loss = BayesianPersonalizedRankingTripletLoss(p=self.p, margin=self.margin, reduction="none")
         else:
             raise NotImplementedError
 
     def forward(self, anchor, positive, negative, relative_pos, total_ocr, prob):
-        triplet_loss = self.triplet_loss(anchor, positive, negative)
-        #triplet_loss = triplet_loss/(torch.log2(relative_pos.float()+1))
-        loss = (self.c/total_ocr.float())*triplet_loss
+        loss = self.triplet_loss(anchor, positive, negative)
         
+        #triplet_loss = triplet_loss/(torch.log2(relative_pos.float()+1))
+        
+        # Discount Popularity Bias
+        popularity_bias = (self.c/total_ocr.float()) if self.c > 0 else 1
+        loss = loss*popularity_bias
+        
+        # Regularize L2 Weigth emb
+        regularization = self.l2_reg * (anchor.norm(dim=0).pow(2).sum() + positive.norm(dim=0).pow(2).sum() + negative.norm(dim=0).pow(2).sum())/3
+        #print(loss.mean(), regularization.mean())
+        loss =  loss + regularization    
+
+        
+
         if self.reduction == "mean":
             return loss.mean()
         else:

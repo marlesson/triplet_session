@@ -151,7 +151,7 @@ mars-gym run supervised \
 mars-gym run supervised \
 --project globo.config.globo_interaction_with_negative_sample \
 --recommender-module-class model.DotModel \
---recommender-extra-params '{"n_factors": 100, "dropout": 0.1, "path_item_embedding": false, "freeze_embedding": false}' \
+--recommender-extra-params '{"n_factors": 100, "dropout": 0.1, "hist_size": 10, "path_item_embedding": false, "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
 --early-stopping-min-delta 0.0001 \
 --negative-proportion 0.8 \
@@ -164,3 +164,85 @@ mars-gym run supervised \
 --epochs 100 \
 --run-evaluate  \
 --sample-size-eval 1000 
+
+
+# {'count': 624,
+#  'coverage_at_20': 0.6970000000000001,
+#  'coverage_at_5': 0.2639,
+#  'mean_average_precision': 0.2732920388803836,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____0541bb99ef',
+#  'mrr_at_10': 0.25181814713064715,
+#  'mrr_at_5': 0.24246794871794874,
+#  'ndcg_at_20': 0.35786870846248087,
+#  'ndcg_at_5': 0.2952730388784639,
+#  'precision_at_1': 0.1907051282051282}
+
+
+########################################
+# NARMModel
+#########################################
+
+
+mars-gym run supervised \
+--project globo.config.globo_rnn \
+--recommender-module-class model.NARMModel \
+--recommender-extra-params '{"n_factors": 100, "hidden_size": 100, "n_layers": 1}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
+--early-stopping-min-delta 0.0001 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 10  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 100 \
+--run-evaluate  \
+--sample-size-eval 1000 
+
+# {'count': 624,
+#  'coverage_at_20': 0.6014,
+#  'coverage_at_5': 0.2145,
+#  'mean_average_precision': 0.2780381041028684,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____7ba204d941',
+#  'mrr_at_10': 0.2614494301994302,
+#  'mrr_at_5': 0.25006677350427353,
+#  'ndcg_at_20': 0.35253372780410885,
+#  'ndcg_at_5': 0.3015511655987205,
+#  'precision_at_1': 0.20032051282051283}
+
+########################################
+# GRURecModel
+#########################################
+
+
+mars-gym run supervised \
+--project globo.config.globo_rnn \
+--recommender-module-class model.GRURecModel \
+--recommender-extra-params '{"n_factors": 100, "hidden_size": 100, "n_layers": 1, "path_item_embedding": false, "freeze_embedding": false, "dropout": 0.2}' \
+--data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
+--early-stopping-min-delta 0.0001 \
+--test-split-type time \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 10  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 100 \
+--obs "dropout" \
+--run-evaluate  \
+--sample-size-eval 1000 
+
+
+# {'count': 624,
+#  'coverage_at_20': 0.5761,
+#  'coverage_at_5': 0.2052,
+#  'mean_average_precision': 0.21551375556592595,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____96f3c83609',
+#  'mrr_at_10': 0.1970053673178673,
+#  'mrr_at_5': 0.1924145299145299,
+#  'ndcg_at_20': 0.25740852196261316,
+#  'ndcg_at_5': 0.22571755201364452,
+#  'precision_at_1': 0.16185897435897437}
+

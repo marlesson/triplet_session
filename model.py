@@ -21,6 +21,14 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+def load_embedding(_n_items, n_factors, path_item_embedding, freeze_embedding):
+    if path_item_embedding:
+        weights = np.loadtxt(path_item_embedding)
+        embs = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
+    else:
+        embs = nn.Embedding(_n_items, n_factors)
+    
+    return embs
 
 class LinearWeightedAvg(nn.Module):
     def __init__(self, n_inputs):
@@ -131,6 +139,8 @@ class GRURecModel(RecommenderModule):
         project_config: ProjectConfig,
         index_mapping: Dict[str, Dict[Any, int]],
         n_factors: int,
+        hidden_size: int,
+        n_layers: int,
         path_item_embedding: str,
         dropout: float,
         freeze_embedding: bool
@@ -138,8 +148,9 @@ class GRURecModel(RecommenderModule):
         super().__init__(project_config, index_mapping)
         self.path_item_embedding = path_item_embedding
         self.dropout = dropout
-        self.hidden_size = 100 
-        self.n_layers = 1
+        self.hidden_size = hidden_size 
+        self.n_layers = n_layers
+        self.emb_dropout = nn.Dropout(0.25)
 
         if self.path_item_embedding:
             weights = np.loadtxt(self.path_item_embedding)
@@ -169,7 +180,7 @@ class GRURecModel(RecommenderModule):
         return x
 
     def forward(self, session_ids, item_ids, item_history_ids):
-        embs = self.item_embeddings(item_history_ids)
+        embs = self.emb_dropout(self.item_embeddings(item_history_ids))
         
         output, hidden = self.gru(embs)
         #output = output.view(-1, output.size(2))  #(B,H)
@@ -273,13 +284,9 @@ class MatrixFactorizationModel(RecommenderModule):
         self.hist_size = hist_size
         self.weight_decay = weight_decay # 0.025#1e-5
 
+        self.pos_embeddings = nn.Embedding(5, n_factors)
         self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
-
-        if self.path_item_embedding:
-            weights = np.loadtxt(self.path_item_embedding)
-            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
-        else:
-            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
 
         self.linear_w_emb = nn.Linear(n_factors*self.hist_size, n_factors)
         self.weight_emb =  nn.Parameter(torch.randn(self.hist_size, 1))
@@ -350,25 +357,19 @@ class DotModel(RecommenderModule):
         n_factors: int,
         path_item_embedding: str,
         dropout: float,
+        hist_size: int,
         freeze_embedding: bool
     ):
         super().__init__(project_config, index_mapping)
         self.path_item_embedding = path_item_embedding
 
-        if self.path_item_embedding:
-            weights = np.loadtxt(self.path_item_embedding)
-            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
-            #self.item_embeddings.weight.requires_grad = False       
-        else:
-            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
 
-        num_dense = 10
-        
         self.dense = nn.Sequential(
             nn.Dropout(p=dropout),
-            nn.Linear(num_dense, int(num_dense / 2)),
+            nn.Linear(hist_size, int(hist_size / 2)),
             nn.SELU(),
-            nn.Linear(int(num_dense / 2), 1),
+            nn.Linear(int(hist_size / 2), 1),
         )
         self.use_normalize = True
         self.weight_init = lecun_normal_init
@@ -381,7 +382,6 @@ class DotModel(RecommenderModule):
             
     def flatten(self, input):
         return input.view(input.size(0), -1)
-
 
     def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
         if self.use_normalize:
@@ -411,7 +411,8 @@ class TripletNet(RecommenderModule):
         self,
         project_config: ProjectConfig,
         index_mapping: Dict[str, Dict[Any, int]],
-        n_factors: int, use_normalize: bool,
+        n_factors: int, 
+        use_normalize: bool,
         dropout: float,
         negative_random: float
     ):
@@ -492,28 +493,18 @@ class TripletNet(RecommenderModule):
                       negative_list_idx: List[torch.Tensor] = None) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]:
         
         #arch_item_emb = self.embedded_dropout(self.item_embeddings, item_ids.long(), dropout=self.dropout if self.training else 0)
-        
         arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
 
         #arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
         #positive_item_emb = self.embedded_dropout(self.item_embeddings, positive_item_ids.long(), dropout=self.dropout if self.training else 0)
-        positive_item_emb = self.item_embeddings(positive_item_ids.long())
-        positive_item_emb = self.normalize(positive_item_emb)
+        positive_item_emb = self.normalize(self.item_embeddings(positive_item_ids.long()))
         
-        #dot_arch_pos = F.sigmoid((arch_item_emb * positive_item_emb).sum(1))
-        dot_arch_pos = (arch_item_emb * positive_item_emb).sum(1)
-
-        if negative_list_idx is None:
-            self.similarity(arch_item_emb, positive_item_emb)
-
         negative_item_ids = self.select_negative_item_emb(item_ids, positive_item_ids, negative_list_idx)
-        
         #negative_item_emb = self.embedded_dropout(self.item_embeddings, negative_item_ids.long(), dropout=self.dropout if self.training else 0)
-        negative_item_emb = self.item_embeddings(negative_item_ids.long())
-        negative_item_emb = self.normalize(negative_item_emb)
+        negative_item_emb = self.normalize(self.item_embeddings(negative_item_ids.long()))
         
-        return self.dropout_emb(arch_item_emb, positive_item_emb, negative_item_emb)
-        #return self.dropout_emb2(arch_item_emb), self.dropout_emb2(positive_item_emb), self.dropout_emb2(negative_item_emb)
+        #return self.dropout_emb(arch_item_emb, positive_item_emb, negative_item_emb)
+        return self.dropout_emb2(arch_item_emb), self.dropout_emb2(positive_item_emb), self.dropout_emb2(negative_item_emb)
         
         #return arch_item_emb, positive_item_emb, negative_item_emb, dot_arch_pos
 

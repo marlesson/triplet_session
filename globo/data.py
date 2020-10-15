@@ -234,20 +234,18 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
             .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
             .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
                
+        # Drop duplicate item in that same session
+        df       = df.dropDuplicates(['SessionID', 'ItemID'])
 
         # filter date
         max_timestamp = df.select(max(col('Timestamp'))).collect()[0]['max(Timestamp)']
         init_timestamp = max_timestamp - timedelta(days = self.sample_days)
         df         = df.filter(col('Timestamp') >= init_timestamp).cache()
 
-        # Drop duplicate item in that same session
-        df       = df.dropDuplicates(['SessionID', 'ItemID'])
-
         df       = df.groupby("SessionID").agg(
                     max("Timestamp").alias("Timestamp"),
                     collect_list("ItemID").alias("ItemIDs"),
                     count("ItemID").alias("total"))
-
 
         # Filter Interactions
         df = df.filter(df.total >= min_itens_per_session)\
@@ -305,6 +303,7 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     max_itens_per_session: int = luigi.IntParameter(default=15)
     min_itens_interactions: int = luigi.IntParameter(default=3)
     max_relative_pos: int = luigi.IntParameter(default=3)
+    days_test: int = luigi.IntParameter(default=1)
 
     def requires(self):
         return CreateIntraSessionInteractionDataset(
@@ -345,15 +344,9 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
         if self.timestamp_property:
             df = df.sort_values(self.timestamp_property)
         
-        days=1    
-        cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=days)
+        cutoff_date = df[self.timestamp_property].iloc[-1] - pd.Timedelta(days=self.days_test)
 
-        df[df[self.timestamp_property] <= cutoff_date.date()]
-
-        #size = len(df)
-        #cut = int(size - size * test_size)
-
-        return df[df[self.timestamp_property] <= cutoff_date.date()], df[df[self.timestamp_property] > cutoff_date.date()]
+        return df[df[self.timestamp_property] < cutoff_date], df[df[self.timestamp_property] >= cutoff_date]
 
 ################################## Interactions ######################################
 

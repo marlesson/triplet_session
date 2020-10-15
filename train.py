@@ -209,8 +209,4 @@ class TripletTraining(SupervisedModelTraining):
     def _get_loss_function(self):
         return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)
 
-class BPRTraining(SupervisedModelTraining):
-    loss_function:  str = luigi.ChoiceParameter(choices=["bpr_loss"], default="bpr_loss")
-
-    def _get_loss_function(self):
-        return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)    
+ 
