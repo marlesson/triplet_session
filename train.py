@@ -95,9 +95,9 @@ class CoOccurrenceTraining(DummyTraining):
         
     def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
         print("get_scores...")
-        #from IPython import embed; embed()
+        #
 
-        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[-1]))
+        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[0]))
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
@@ -150,7 +150,7 @@ class IKNNTraining(DummyTraining):
     def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
         print("get_scores...")
 
-        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[-1]))
+        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[0]))
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
@@ -168,12 +168,6 @@ class IKNNTraining(DummyTraining):
             return sim#[0]#[self.matrix_item_idx[item_b]]
         except:
             return 0
-
-    # def run_evaluate_task(self) -> None:
-    #     os.system(
-    #         "PYTHONPATH=. luigi --module mars_gym.evaluation.task EvaluateTestSetPredictions "
-    #         f"--model-task-class train.IKNNTraining --model-task-id {self.task_id} --only-new-interactions --only-exist-items --local-scheduler"
-    #     )     
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet", "contrastive_loss"], default="relative_triplet")

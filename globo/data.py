@@ -35,7 +35,7 @@ BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "globo", "archive", 'clicks'
 
 ## AUX
 pad_history = F.udf(
-    lambda arr, size: [0] * (size - len(arr[:-1][:size])) + arr[:-1][:size], 
+    lambda arr, size: list(reversed(([0] * (size - len(arr[:-1][:size])) + arr[:-1][:size]))), 
     ArrayType(IntegerType())
 )
 

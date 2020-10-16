@@ -10,7 +10,8 @@
 * Train all models with item map triplet but without embs
 * Train all models with embs (trainable)
 * Train all models with embs (freze)
-  
+* var Window history  
+* var
 
 ### Dataset
 
