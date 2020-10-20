@@ -20,7 +20,7 @@ def triplet_acc(y_pred: torch.Tensor, y_true: torch.Tensor):
     p=2.
     eps=1e-6
     
-    anchor, positive, negative, _  = y_pred
+    anchor, positive, negative  = y_pred
     positive_distance = F.pairwise_distance(anchor, positive, p, eps)
     negative_distance = F.pairwise_distance(anchor, negative, p, eps)
 
@@ -33,7 +33,7 @@ def triplet_acc(y_pred: torch.Tensor, y_true: torch.Tensor):
 @metrics.lambda_metric("triplet_mse", on_epoch=False)
 def triplet_mse(y_pred: torch.Tensor, y_true: torch.Tensor):
     anchor, positive, negative, relative_pos_pred = y_pred
-    relative_pos, total_ocr, prob = y_true
+    relative_pos, total_ocr = y_true
     
     #relative_pos = 1-F.tanh(relative_pos.float()+1)
     return F.mse_loss(relative_pos_pred.float(), relative_pos.float())
@@ -50,8 +50,8 @@ def triplet_dist(y_pred: torch.Tensor, y_true: torch.Tensor):
     swap=True
     c = 100
 
-    anchor, positive, negative, _ = y_pred
-    relative_pos, total_ocr, prob = y_true
+    anchor, positive, negative = y_pred
+    relative_pos, total_ocr = y_true
 
     triplet_loss = nn.TripletMarginLoss(reduction="none", margin=margin, swap=swap)
     triplet_loss = triplet_loss(anchor, positive, negative)
@@ -178,23 +178,30 @@ class BayesianPersonalizedRankingTripletLoss(_Loss):
         elif self.reduction == "none":
             return loss
 
-class BPRLoss(_Loss):
-    def __init__(self, p=2., eps=1e-6, swap=False, size_average=None,
-                 reduce=None, reduction="mean"):
+class TripletMarginLoss(_Loss):
+    def __init__(self, size_average=None,  reduce=None, p=2., eps=1e-6, reduction="mean", swap=False, margin=1.0):
         super().__init__(size_average, reduce, reduction)
+        self.margin = margin
+        self.swap = swap
         self.p = p
         self.eps = eps
-        self.swap = swap
+        
+    def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor, pos) -> torch.Tensor:
+        positive_distance = F.pairwise_distance(anchor, positive, self.p, self.eps)/(torch.log2(pos.float()+1))
+        negative_distance = F.pairwise_distance(anchor, negative, self.p, self.eps)
 
-    def forward(self, anchor, positive, negative):
+        if self.swap:
+            positive_negative_distance = F.pairwise_distance(positive, negative, self.p, self.eps)
+            negative_distance = torch.min(negative_distance, positive_negative_distance)
 
-        loss = 1 - F.sigmoid(positive_distance - negative_distance)
+        loss = torch.relu(positive_distance - negative_distance + self.margin)
+
         if self.reduction == "mean":
             return loss.mean()
         elif self.reduction == "sum":
             return loss.sum()
         elif self.reduction == "none":
-            return loss    
+            return loss
 
 class RelativeTripletLoss(_Loss):
     '''
@@ -215,13 +222,13 @@ class RelativeTripletLoss(_Loss):
         self.l2_reg = l2_reg
 
         if triplet_loss == "triplet_margin":
-            self.triplet_loss = nn.TripletMarginLoss(p=self.p, reduction="none", margin=self.margin, swap=self.swap)
+            self.triplet_loss = TripletMarginLoss(p=self.p, reduction="none", margin=self.margin, swap=self.swap)
         elif triplet_loss == "bpr_triplet":
             self.triplet_loss = BayesianPersonalizedRankingTripletLoss(p=self.p, margin=self.margin, reduction="none")
         else:
             raise NotImplementedError
 
-    def forward(self, anchor, positive, negative, pos, relative_pos, total_ocr, prob):
+    def forward(self, anchor, positive, negative, relative_pos, total_ocr):
         loss = self.triplet_loss(anchor, positive, negative, relative_pos)
         
         # Discount Popularity Bias

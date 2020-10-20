@@ -32,6 +32,9 @@
 * DotProd (ok)
 * NARM: (ok)  https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch
 * GRU4Rec
+* SASRec https://github.com/pmixer/SASRec.pytorch/blob/master/model.py
+* Caser https://arxiv.org/pdf/1809.07426v1.pdf
+* BERT4Rec https://github.com/FeiSun/BERT4Rec
 
 ## Papers
 

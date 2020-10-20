@@ -11,6 +11,7 @@ from mars_gym.meta_config import ProjectConfig
 from mars_gym.model.abstract import RecommenderModule
 from mars_gym.model.bandit import BanditPolicy
 from mars_gym.torch.init import lecun_normal_init
+import pickle
 
 from numpy.random.mtrand import RandomState
 import random
@@ -21,13 +22,38 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-def load_embedding(_n_items, n_factors, path_item_embedding, freeze_embedding):
-    if path_item_embedding:
-        weights = np.loadtxt(path_item_embedding)
-        embs = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
+#---------------------------------- AUX --------------------
+
+def load_embedding(_n_items, n_factors, path_item_embedding, path_from_index_mapping, index_mapping, freeze_embedding):
+
+    if path_from_index_mapping and path_item_embedding:
+        embs = nn.Embedding(_n_items, n_factors)
+
+        # Load extern index mapping
+        if os.path.exists(path_from_index_mapping):
+            with open(path_from_index_mapping, "rb") as f:
+                from_index_mapping = pickle.load(f)    
+
+        # Load weights embs
+        extern_weights = np.loadtxt(path_item_embedding)
+        intern_weights = embs.weight.detach().numpy()
+
+        # new_x =  g(f-1(x))
+        reverse_index_mapping = {value_: key_ for key_, value_ in index_mapping['ItemID'].items()}
+        
+        embs_weights = np.array([extern_weights[from_index_mapping['ItemID'][reverse_index_mapping[i]]] if from_index_mapping['ItemID'][reverse_index_mapping[i]] > 1 else intern_weights[i] for i in np.arange(_n_items) ])
+
+        #from IPython import embed; embed()
+        embs = nn.Embedding.from_pretrained(torch.from_numpy(embs_weights).float(), freeze=freeze_embedding)
+        
+    elif path_item_embedding:
+        # Load extern embs
+        extern_weights = torch.from_numpy(np.loadtxt(path_item_embedding)).float()
+    
+        embs = nn.Embedding.from_pretrained(extern_weights, freeze=freeze_embedding)
     else:
         embs = nn.Embedding(_n_items, n_factors)
-    
+
     return embs
 
 class LinearWeightedAvg(nn.Module):
@@ -75,35 +101,52 @@ class EmbeddingDropout(nn.Module):
             return tuple(emb * mask for emb in embs)
         return tuple(embs)
 
-class SimpleLinearModel(RecommenderModule):
+class PointWiseFeedForward(torch.nn.Module):
+    def __init__(self, hidden_units, dropout_rate):
+
+        super(PointWiseFeedForward, self).__init__()
+
+        self.conv1 = torch.nn.Conv1d(hidden_units, hidden_units, kernel_size=1)
+        self.dropout1 = torch.nn.Dropout(p=dropout_rate)
+        self.relu = torch.nn.ReLU()
+        self.conv2 = torch.nn.Conv1d(hidden_units, hidden_units, kernel_size=1)
+        self.dropout2 = torch.nn.Dropout(p=dropout_rate)
+
+    def forward(self, inputs):
+        outputs = self.dropout2(self.conv2(self.relu(self.dropout1(self.conv1(inputs.transpose(-1, -2))))))
+        outputs = outputs.transpose(-1, -2) # as Conv1D requires (N, C, Length)
+        outputs += inputs
+        return outputs
+
+
+# --------------------------
+
+
+class DotModel(RecommenderModule):
     def __init__(
         self,
         project_config: ProjectConfig,
         index_mapping: Dict[str, Dict[Any, int]],
         n_factors: int,
-        path_item_embedding: str
+        path_item_embedding: str,
+        from_index_mapping: str,
+        dropout: float,
+        hist_size: int,
+        freeze_embedding: bool
     ):
         super().__init__(project_config, index_mapping)
         self.path_item_embedding = path_item_embedding
 
-        if self.path_item_embedding:
-            weights = np.loadtxt(self.path_item_embedding)
-            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=False)
-            #self.item_embeddings.weight.requires_grad = False       
-        else:
-            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
-
-        self.user_embeddings = nn.Embedding(self._n_users, n_factors)
-        self.dayofweek_embeddings = nn.Embedding(7, n_factors)
-
-        num_dense = n_factors * (1 + 10)
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
 
         self.dense = nn.Sequential(
-            nn.Linear(num_dense, int(num_dense / 2)),
+            nn.Dropout(p=dropout),
+            nn.Linear(hist_size, int(hist_size / 2)),
             nn.SELU(),
-            nn.Linear(int(num_dense / 2), 1),
+            nn.Linear(int(hist_size / 2), 1),
         )
-
+        self.use_normalize = True
         self.weight_init = lecun_normal_init
         self.apply(self.init_weights)
 
@@ -115,23 +158,275 @@ class SimpleLinearModel(RecommenderModule):
     def flatten(self, input):
         return input.view(input.size(0), -1)
 
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+
     def forward(self, session_ids, item_ids, item_history_ids):
         # Item emb
-        item_emb = self.item_embeddings(item_ids)
+        item_emb = self.normalize(self.item_embeddings(item_ids))
 
         # Item History embs
-        interaction_item_emb = self.flatten(self.item_embeddings(item_history_ids))
+        hist_emb = self.normalize(self.item_embeddings(item_history_ids))
+        
+        dot_prod = torch.matmul(item_emb.unsqueeze(1), hist_emb.permute(0, 2, 1))
 
+        dot_prod = self.flatten(dot_prod)
+        
         ## DayofWeek Emb
         #dayofweek_emb = self.dayofweek_embeddings(dayofweek.long())
 
-        x = torch.cat(
-            (item_emb, interaction_item_emb),
-            dim=1,
-        )
+        out = torch.sigmoid(self.dense(dot_prod))
 
-        out = torch.sigmoid(self.dense(x))
         return out
+
+class Caser(RecommenderModule):
+    '''
+    https://github.com/graytowne/caser_pytorch
+    https://arxiv.org/pdf/1809.07426v1.pdf
+    '''
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        path_item_embedding: str,
+        from_index_mapping: str,
+        freeze_embedding: bool,
+        n_factors: int,
+        p_L: int,
+        p_d: int,
+        p_nh: int,
+        p_nv: int,
+        dropout: float,
+        hist_size: int,
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        self.hist_size = hist_size
+        self.n_factors = n_factors
+        
+        # init args
+        L = p_L
+        dims = p_d
+        self.n_h = p_nh
+        self.n_v = p_nv
+        self.drop_ratio = dropout
+        self.ac_conv = F.relu#activation_getter[p_ac_conv]
+        self.ac_fc = F.relu#activation_getter[p_ac_fc]
+        num_items = self._n_items
+        dims = n_factors
+
+        # user and item embeddings
+        #self.user_embeddings = nn.Embedding(num_users, dims)
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
+
+        # vertical conv layer
+        self.conv_v = nn.Conv2d(1, self.n_v, (L, 1))
+
+        # horizontal conv layer
+        lengths = [i + 1 for i in range(L)]
+        self.conv_h = nn.ModuleList([nn.Conv2d(1, self.n_h, (i, dims)) for i in lengths])
+
+        # fully-connected layer
+        self.fc1_dim_v = self.n_v * dims
+        self.fc1_dim_h = self.n_h * len(lengths)
+        fc1_dim_in = self.fc1_dim_v + self.fc1_dim_h
+        # W1, b1 can be encoded with nn.Linear
+        self.fc1 = nn.Linear(fc1_dim_in, dims)
+        # W2, b2 are encoded with nn.Embedding, as we don't need to compute scores for all items
+        self.W2 = nn.Embedding(num_items, dims) #+dims
+        self.b2 = nn.Embedding(num_items, 1)
+
+        # dropout
+        self.dropout = nn.Dropout(self.drop_ratio)
+
+        # weight initialization
+        #self.user_embeddings.weight.data.normal_(0, 1.0 / self.user_embeddings.embedding_dim)
+        self.item_embeddings.weight.data.normal_(0, 1.0 / self.item_embeddings.embedding_dim)
+        self.W2.weight.data.normal_(0, 1.0 / self.W2.embedding_dim)
+        self.b2.weight.data.zero_()
+
+        self.cache_x = None
+
+
+    def forward(self, session_ids, item_ids, item_history_ids): # for training        
+        """
+        The forward propagation used to get recommendation scores, given
+        triplet (user, sequence, targets).
+        Parameters
+        ----------
+        item_history_ids: torch.FloatTensor with size [batch_size, max_sequence_length]
+            a batch of sequence
+        user_var: torch.LongTensor with size [batch_size]
+            a batch of user
+        item_ids: torch.LongTensor with size [batch_size]
+            a batch of items
+        for_pred: boolean, optional
+            Train or Prediction. Set to True when evaluation.
+        """
+
+        # Embedding Look-up
+        item_embs = self.item_embeddings(item_history_ids).unsqueeze(1)  # use unsqueeze() to get 4-D
+        #user_emb = self.user_embeddings(user_var).squeeze(1)
+
+        # Convolutional Layers
+        out, out_h, out_v = None, None, None
+        # vertical conv layer
+        if self.n_v:
+            out_v = self.conv_v(item_embs)
+            out_v = out_v.view(-1, self.fc1_dim_v)  # prepare for fully connect
+
+        # horizontal conv layer
+        out_hs = list()
+        if self.n_h:
+            for conv in self.conv_h:
+                conv_out = self.ac_conv(conv(item_embs).squeeze(3))
+                pool_out = F.max_pool1d(conv_out, conv_out.size(2)).squeeze(2)
+                out_hs.append(pool_out)
+            out_h = torch.cat(out_hs, 1)  # prepare for fully connect
+
+        # Fully-connected Layers
+        out = torch.cat([out_v, out_h], 1)
+        # apply dropout
+        out = self.dropout(out)
+
+        # fully-connected layer
+        z = self.ac_fc(self.fc1(out))
+        x = z #torch.cat([z, user_emb], 1)
+
+        w2 = self.W2(item_ids)
+        b2 = self.b2(item_ids)
+
+        # if for_pred:
+        w2 = w2.squeeze()
+        b2 = b2.squeeze()
+        res = (x * w2).sum(1) + b2
+        # else:
+            #res = torch.baddbmm(b2, w2, x.unsqueeze(2)).squeeze()
+        out = torch.sigmoid(res)
+
+        return out
+
+    # def recommendation_score(self, session_ids, item_ids, item_history_ids): # for inference
+    #     log_feats = self.log2feats(item_history_ids) # user_ids hasn't been used yet
+    #     item_embs = self.item_emb(torch.LongTensor(item_ids)) # (U, I, C)
+
+    #     final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
+
+    #     logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
+
+    #     return logits # preds # (U, I)
+
+class SASRec(RecommenderModule):
+    '''
+    https://github.com/pmixer/SASRec.pytorch/blob/30c43cf090d429480339ab18d43354b3e399bc29/model.py#L5
+    '''
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        path_item_embedding: str,
+        from_index_mapping: str,
+        freeze_embedding: bool,
+        n_factors: int,
+        num_blocks: int,
+        num_heads: int,
+        dropout: float,
+        hist_size: int,
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        self.hist_size = hist_size
+        self.n_factors = n_factors
+        
+        # TODO: loss += args.l2_emb for regularizing embedding vectors during training
+        # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
+        self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
+        self.pos_emb = torch.nn.Embedding(hist_size, n_factors) # TO IMPROVE
+        self.emb_dropout = torch.nn.Dropout(p=dropout)
+
+        self.attention_layernorms = torch.nn.ModuleList() # to be Q for self-attention
+        self.attention_layers = torch.nn.ModuleList()
+        self.forward_layernorms = torch.nn.ModuleList()
+        self.forward_layers = torch.nn.ModuleList()
+
+        self.last_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+
+        for _ in range(num_blocks):
+            new_attn_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+            self.attention_layernorms.append(new_attn_layernorm)
+
+            new_attn_layer =  torch.nn.MultiheadAttention(n_factors,
+                                                            num_heads,
+                                                            dropout)
+            self.attention_layers.append(new_attn_layer)
+
+            new_fwd_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+            self.forward_layernorms.append(new_fwd_layernorm)
+
+            new_fwd_layer = PointWiseFeedForward(n_factors, dropout)
+            self.forward_layers.append(new_fwd_layer)
+
+
+    def log2feats(self, log_seqs):
+        seqs = self.item_emb(log_seqs)
+        seqs *= self.item_emb.embedding_dim ** 0.5
+
+        positions = np.tile(np.array(range(self.hist_size)), [log_seqs.shape[0], 1])
+        
+        seqs += self.pos_emb(torch.LongTensor(positions).to(log_seqs.device))
+        seqs = self.emb_dropout(seqs)
+
+        timeline_mask = (log_seqs == 0)#.float()
+        seqs *= (~timeline_mask).float().unsqueeze(-1) # broadcast in last dim
+
+        tl = seqs.shape[1] # time dim len for enforce causality
+        attention_mask = (~torch.tril(torch.ones((tl, tl), dtype=torch.float)).bool()).float().to(log_seqs.device)
+
+        for i in range(len(self.attention_layers)):
+            seqs = torch.transpose(seqs, 0, 1)
+            Q = self.attention_layernorms[i](seqs)
+            mha_outputs, _ = self.attention_layers[i](Q, seqs, seqs, 
+                                            attn_mask=attention_mask)
+                                            # key_padding_mask=timeline_mask
+                                            # need_weights=False) this arg do not work?
+            seqs = Q + mha_outputs
+            seqs = torch.transpose(seqs, 0, 1)
+
+            seqs = self.forward_layernorms[i](seqs)
+            seqs = self.forward_layers[i](seqs)
+            seqs *=  (~timeline_mask).float().unsqueeze(-1)
+
+        log_feats = self.last_layernorm(seqs) # (U, T, C) -> (U, -1, C)
+
+        return log_feats
+
+    def forward(self, session_ids, item_ids, item_history_ids): # for training        
+        log_feats = self.log2feats(item_history_ids) # (B, H, E)
+        item_embs = self.item_emb(item_ids) # (B, E)
+        #logits    = (log_feats * item_embs).sum(-1)#.mean(1)
+
+        final_feat = log_feats[:, 0, :] # (B, E)  only use last QKV classifier, a waste
+
+        #logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1) # (B, B)
+        logits     = (final_feat * item_embs).sum(-1) # (B)
+
+        return logits#.view(-1)
+
+    # def recommendation_score(self, session_ids, item_ids, item_history_ids): # for inference
+    #     log_feats = self.log2feats(item_history_ids) # user_ids hasn't been used yet
+    #     item_embs = self.item_emb(torch.LongTensor(item_ids)) # (U, I, C)
+
+    #     final_feat = log_feats[:, 0, :] # only use last QKV classifier, a waste
+
+    #     logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
+
+    #     return logits # preds # (U, I)
 
 class GRURecModel(RecommenderModule):
     def __init__(
@@ -142,6 +437,7 @@ class GRURecModel(RecommenderModule):
         hidden_size: int,
         n_layers: int,
         path_item_embedding: str,
+        from_index_mapping: str,
         dropout: float,
         freeze_embedding: bool
     ):
@@ -152,12 +448,8 @@ class GRURecModel(RecommenderModule):
         self.n_layers = n_layers
         self.emb_dropout = nn.Dropout(0.25)
 
-        if self.path_item_embedding:
-            weights = np.loadtxt(self.path_item_embedding)
-            self.item_embeddings = nn.Embedding.from_pretrained(torch.from_numpy(weights).float(),freeze=freeze_embedding)
-            #self.item_embeddings.weight.requires_grad = False       
-        else:
-            self.item_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
 
         self.gru = nn.GRU(n_factors, self.hidden_size, self.n_layers, dropout=self.dropout)
         self.out = nn.Linear(self.hidden_size, self._n_items)
@@ -208,6 +500,7 @@ class NARMModel(RecommenderModule):
         n_layers: int,
         hidden_size: int,
         path_item_embedding: str,
+        from_index_mapping: str,
         freeze_embedding: bool,        
         dropout: float        
     ):
@@ -218,7 +511,8 @@ class NARMModel(RecommenderModule):
         self.embedding_dim = n_factors
         #self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
 
-        self.emb = load_embedding(self._n_items, self.embedding_dim, path_item_embedding, freeze_embedding)
+        self.emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
 
         self.emb_dropout = nn.Dropout(0.25)
         self.gru = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers)
@@ -280,6 +574,7 @@ class MatrixFactorizationModel(RecommenderModule):
         index_mapping: Dict[str, Dict[Any, int]],
         n_factors: int,
         path_item_embedding: str,
+        from_index_mapping: str,
         dropout: float,
         freeze_embedding: bool,
         hist_size: int,
@@ -291,8 +586,16 @@ class MatrixFactorizationModel(RecommenderModule):
         self.weight_decay = weight_decay # 0.025#1e-5
 
         #self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
-        self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
-        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
+        #self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
+
+        self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
+
+
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
 
         self.linear_w_emb = nn.Linear(n_factors*self.hist_size, n_factors)
         self.weight_emb =  nn.Parameter(torch.randn(self.hist_size, 1))
@@ -319,7 +622,7 @@ class MatrixFactorizationModel(RecommenderModule):
         item_emb = self.normalize(self.item_embeddings(item_ids))
 
         # Item History embs
-        hist_emb = self.normalize(self.hist_embeddings(item_history_ids), 2)
+        hist_emb = self.normalize(self.item_embeddings(item_history_ids), 2)
 
         #hist_emb_mean = torch.stack([self.linear_w_avg(emb) for emb in hist_emb], dim=0)
         #hist_mean_emb = hist_emb.mean(1)
@@ -354,63 +657,6 @@ class MatrixFactorizationModel(RecommenderModule):
         scores = torch.sigmoid(dot_p)
         
         return scores
-
-class DotModel(RecommenderModule):
-    def __init__(
-        self,
-        project_config: ProjectConfig,
-        index_mapping: Dict[str, Dict[Any, int]],
-        n_factors: int,
-        path_item_embedding: str,
-        dropout: float,
-        hist_size: int,
-        freeze_embedding: bool
-    ):
-        super().__init__(project_config, index_mapping)
-        self.path_item_embedding = path_item_embedding
-
-        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
-
-        self.dense = nn.Sequential(
-            nn.Dropout(p=dropout),
-            nn.Linear(hist_size, int(hist_size / 2)),
-            nn.SELU(),
-            nn.Linear(int(hist_size / 2), 1),
-        )
-        self.use_normalize = True
-        self.weight_init = lecun_normal_init
-        self.apply(self.init_weights)
-
-    def init_weights(self, module: nn.Module):
-        if type(module) == nn.Linear:
-            self.weight_init(module.weight)
-            module.bias.data.fill_(0.1)
-            
-    def flatten(self, input):
-        return input.view(input.size(0), -1)
-
-    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
-        if self.use_normalize:
-            x = F.normalize(x, p=2, dim=dim)
-        return x
-
-    def forward(self, session_ids, item_ids, item_history_ids):
-        # Item emb
-        item_emb = self.normalize(self.item_embeddings(item_ids))
-
-        # Item History embs
-        hist_emb = self.normalize(self.item_embeddings(item_history_ids))
-        
-        dot_prod = torch.matmul(item_emb.unsqueeze(1), hist_emb.permute(0, 2, 1))
-
-        dot_prod = self.flatten(dot_prod)
-        
-        ## DayofWeek Emb
-        #dayofweek_emb = self.dayofweek_embeddings(dayofweek.long())
-
-        out = torch.sigmoid(self.dense(dot_prod))
-
-        return out
 
 class TripletNet(RecommenderModule):
     def __init__(
@@ -460,17 +706,17 @@ class TripletNet(RecommenderModule):
         anchors    = self.normalize(self.item_embeddings(item_ids.long()))  # (B, E)
 
         all_negative_items_embedding = self.normalize(
-            self.item_embeddings(negative_item_list_idx), dim=2)  # (B, 100, E)
+            self.item_embeddings(negative_item_list_idx), dim=2)  # (B, S, E)
 
-        distances_between_archor_and_negatives = (
-            anchors.reshape(batch_size, 1, self.item_embeddings.embedding_dim)
+        similarity_between_archor_and_negatives = (
+            anchors.reshape(batch_size, 1, self.item_embeddings.embedding_dim) # (B, 1, E)
             * all_negative_items_embedding
         ).sum(
             2
-        )  # (B, 100)
+        )  # (B, S)
 
         hardest_negative_items = torch.argmax(
-            distances_between_archor_and_negatives, dim=1
+            similarity_between_archor_and_negatives, dim=1
         )  # (B,)
 
         # negatives = all_negative_items_embedding[
@@ -487,7 +733,6 @@ class TripletNet(RecommenderModule):
 
         if random.random() < self.negative_random:
             negative_item_idx = negative_list_idx[:,0]
-            #negative_item_emb = self.normalize(self.item_embeddings(negative_item_idx.long()))
         else:
             negative_item_idx = self.get_harder_negative(item_ids, positive_item_ids, negative_list_idx)
         
@@ -519,8 +764,7 @@ class TripletNet(RecommenderModule):
         #return self.dropout_emb(arch_item_emb, positive_item_emb, negative_item_emb)
         return self.dropout_emb(arch_item_emb), \
                 self.dropout_emb(positive_item_emb), \
-                self.dropout_emb(negative_item_emb),\
-                positive_item_emb
+                self.dropout_emb(negative_item_emb)
         
         #return arch_item_emb, positive_item_emb, negative_item_emb, dot_arch_pos
 

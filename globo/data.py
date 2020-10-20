@@ -2,6 +2,9 @@ import luigi
 import pandas as pd
 import numpy as np
 import os
+import pickle
+list_sum = sum
+
 from mars_gym.data.task import BasePrepareDataFrames, BasePySparkTask
 from mars_gym.data.utils import DownloadDataset
 from mars_gym.data.dataset import (
@@ -132,6 +135,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     history_window: int = luigi.IntParameter(default=10)
     size_available_list: int = luigi.IntParameter(default=100)
     days_test: int = luigi.IntParameter(default=1)
+    index_mapping_path: str = luigi.Parameter(default=None)
 
     def requires(self):
         return SessionPrepareDataset(sample_days=self.sample_days, history_window=self.history_window, size_available_list=self.size_available_list)
@@ -141,6 +145,10 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         return "Timestamp"
 
     @property
+    def item_property(self) -> str:
+        return "ItemID"
+
+    @property
     def dataset_dir(self) -> str:
         return DATASET_DIR
 
@@ -148,7 +156,23 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     def read_data_frame_path(self) -> pd.DataFrame:
         return self.input().path
 
+    def read_data_frame(self) -> pd.DataFrame:
+        df = pd.read_csv(self.read_data_frame_path)#.sample(10000)
+        
+        if self.index_mapping_path:
+            df = self.filter_mapping(df)
+
+        return df
+
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+        return df
+
+    def filter_mapping(self, df):
+        with open(self.index_mapping_path, "rb") as f:
+            _index_mapping = pickle.load(f)        
+
+        df = df[df[self.item_property].astype(str).isin(list(_index_mapping[self.item_property].keys()))]
+
         return df
 
     def time_train_test_split(
@@ -166,6 +190,19 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
 #################################  Triplet ##############################
 
+def serach_positive(uid, df, max_deep = 1, deep = 0, list_pos = []):
+    if uid not in list_pos:
+        list_pos.append(uid)
+        #print(list_pos)
+       
+        if deep >= max_deep:
+            return df.loc[uid].sub_a_b
+        else:
+            l = [serach_positive(i, df, max_deep, deep+1, list_pos) for i in df.loc[uid].sub_a_b]
+            l.append(df.loc[uid].sub_a_b)
+            return list_sum(l, [])
+    else:
+        return []
 
 class CreateIntraSessionInteractionDataset(BasePySparkTask):
     sample_days: int = luigi.IntParameter(default=16)
@@ -175,12 +212,21 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
     max_itens_per_session: int = luigi.IntParameter(default=15)
     min_itens_interactions: int = luigi.IntParameter(default=3)
     max_relative_pos: int = luigi.IntParameter(default=3)
+    pos_max_deep: int = luigi.IntParameter(default=1)
+
     # def requires(self):
     #     return SessionPrepareDataset(sample_days=self.sample_days, history_window=self.history_window, size_available_list=self.size_available_list)
 
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "indexed_intra_session_train_%d_w=%d_l=%d_m=%d_s=%d_i=%d_p=%d" % (self.sample_days, self.history_window, 
+            self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions, self.max_relative_pos))),\
+                luigi.LocalTarget(os.path.join(DATASET_DIR, "item_positive_interaction_%d_w=%d_l=%d_m=%d_s=%d_i=%d_p=%d.csv" % (self.sample_days, self.history_window, 
+            self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions, self.max_relative_pos))),\
+                luigi.LocalTarget(os.path.join(DATASET_DIR, "item_id_index_%d_w=%d_l=%d_m=%d_s=%d_i=%d_p=%d.csv" % (self.sample_days, self.history_window, 
+            self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions, self.max_relative_pos))),\
+                luigi.LocalTarget(os.path.join(DATASET_DIR, "session_index_%d_w=%d_l=%d_m=%d_s=%d_i=%d_p=%d.csv" % (self.sample_days, self.history_window, 
             self.size_available_list, self.minimum_interactions, self.max_itens_per_session, self.min_itens_interactions, self.max_relative_pos)))
+
 
     def get_df_tuple_probs(self, df):
 
@@ -199,24 +245,40 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
                     .withColumnRenamed("total", "total_ocr").cache()
 
         return df_join
-
+    
     def add_positive_interactions(self, df):
-
-        df_a = df\
+        
+        # Filter more then 1 ocurrence for positive interactions
+        df = df.filter(col("total_ocr_dupla") > 1)
+    
+        df = df\
             .groupby("ItemID_A")\
-            .agg(F.collect_set("ItemID_B").alias("sub_a"))
+            .agg(F.collect_set("ItemID_B").alias("sub_a_b"))
 
-        df_b = df\
-            .groupby("ItemID_B")\
-            .agg(F.collect_set("ItemID_A").alias("sub_b"))
+        # df_b = df\
+        #     .groupby("ItemID_B")\
+        #     .agg(F.collect_set("ItemID_A").alias("sub_b"))
 
-        df = df.join(df_a, "ItemID_A").join(df_b, "ItemID_B").cache()
+        # df = df.join(df_a, "ItemID_A").join(df_b, "ItemID_B").cache()
 
-        concat_int_arrays = concat(IntegerType())
-        df = df.withColumn("sub_a_b", concat_int_arrays("sub_a", "sub_b"))#.show(truncate=False)
+        # concat_int_arrays = concat(IntegerType())
+        # df = df.withColumn("sub_a_b", concat_int_arrays("sub_a", "sub_b"))#.show(truncate=False)
+        # return df
+        df = df.withColumnRenamed("ItemID_A", "ItemID")
+        #df = df.withColumn("ItemID_COPY",df.ItemID)
+
+        df = df.toPandas().set_index('ItemID')
+        print(df)
+
+        sub_pos = []
+        for i, row in df.iterrows():
+            l = serach_positive(row.name, df, max_deep = self.pos_max_deep, deep=0, list_pos=[])
+            sub_pos.append(list(np.unique(l)))
         
+        df['sub_a_b_all'] = sub_pos
+
         return df
-        
+
     def main(self, sc: SparkContext, *args):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
@@ -248,8 +310,9 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
                     count("ItemID").alias("total"))
 
         # Filter Interactions
-        df = df.filter(df.total >= min_itens_per_session)\
-                .filter(df.total <=  max_itens_per_session).cache()
+        df = df.filter(df.total >= min_itens_per_session).cache()
+# \
+#                 .filter(df.total <=  max_itens_per_session)
 
         # Filter position in list
         df_pos = df.select(col('SessionID').alias('_SessionID'),
@@ -270,33 +333,42 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
 
         df = df.withColumn("relative_pos", abs(df.pos_A - df.pos_B))
 
-
         # Filter  distincts
-        df = df.select('SessionID', 'Timestamp', 'ItemID_A', 'pos_A', 'ItemID_B', 'pos_B', 'relative_pos')\
+        df = df.select('SessionID', 'Timestamp', 'ItemID_A', 'pos_A', 
+                        'ItemID_B', 'pos_B', 'relative_pos')\
                 .distinct()\
                 .filter(df.ItemID_A != df.ItemID_B).cache()
 
-        # Filter duplicates
-        #udf_join = F.udf(lambda s,x,y : "_".join(sorted([str(s), str(x),str(y)])) , StringType())
-        #df = df.withColumn('key', udf_join('SessionID', 'ItemID_A','ItemID_B'))
-        #df = df.dropDuplicates(["key"])
+        # # Filter duplicates
+        # udf_join = F.udf(lambda s,x,y : "_".join(sorted([str(s), str(x),str(y)])) , StringType())
+        # df = df.withColumn('key', udf_join('SessionID', 'ItemID_A','ItemID_B'))
+        # df = df.dropDuplicates(["key"])
 
         # Calculate and filter probs ocorrence
         df_probs = self.get_df_tuple_probs(df)
+        df = df.join(df_probs, (df.ItemID_A == df_probs._ItemID_A) & (df.ItemID_B == df_probs._ItemID_B))
 
         # Add positive interactoes
-        df = self.add_positive_interactions(df)
+        df_positive = self.add_positive_interactions(df)
 
-        df = df.join(df_probs, (df.ItemID_A == df_probs._ItemID_A) & (df.ItemID_B == df_probs._ItemID_B))
+        # Filter confidence
         df = df.filter(col("total_ocr_dupla") >= min_itens_interactions)\
-               .filter(col("relative_pos") <= max_relative_pos)
+               .filter(col("relative_pos") <= max_relative_pos)\
+               .filter(col("pos_A") <= self.max_itens_per_session)
+                   
 
-        df = df.select("SessionID", 'Timestamp', 'ItemID_A', 'pos_A',
-                        'ItemID_B', 'pos_B', 'relative_pos', 
-                        'total_ocr', 'prob', 'sub_a_b')\
-                .dropDuplicates(['ItemID_A', 'ItemID_B'])
+        # df = df.select("SessionID", 'Timestamp', 'ItemID_A', 'pos_A',
+        #                 'ItemID_B', 'pos_B', 'relative_pos', 
+        #                 'total_ocr', 'total_ocr_dupla', 'prob', 'sub_a_b')\
+        #         .dropDuplicates(['ItemID_A', 'ItemID_B', 'relative_pos']) # TODO is it right?
+        df = df.select("SessionID", 'Timestamp', 'ItemID_A', 'ItemID_B', 'relative_pos', 
+                        'total_ocr', 'total_ocr_dupla')\
+                .dropDuplicates(['ItemID_A', 'ItemID_B', 'relative_pos']) # TODO is it right?
 
-        df.write.parquet(self.output().path)
+        df.select("ItemID_A").dropDuplicates().toPandas().to_csv(self.output()[2].path, index_label="item_idx")
+        df.select("SessionID").dropDuplicates().toPandas().to_csv(self.output()[3].path, index_label="session_idx")
+        df.write.parquet(self.output()[0].path)
+        df_positive.to_csv(self.output()[1].path)
 
 class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     sample_days: int = luigi.IntParameter(default=16)
@@ -304,6 +376,7 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     min_itens_interactions: int = luigi.IntParameter(default=3)
     max_relative_pos: int = luigi.IntParameter(default=3)
     days_test: int = luigi.IntParameter(default=1)
+    filter_first_interaction: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
         return CreateIntraSessionInteractionDataset(
@@ -321,19 +394,36 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
         return DATASET_DIR
 
     def read_data_frame(self) -> pd.DataFrame:
-        df = pd.read_parquet(self.read_data_frame_path)#.sample(200000)
-        df["ItemID"]        = df.ItemID_A
+        df = pd.read_parquet(self.read_data_frame_path)#.sample(10000)
+
+        # TODO
+        if self.filter_first_interaction:
+            df = df.groupby(['ItemID_A', 'ItemID_B']).head(1).reset_index(drop=True)
+        
+        #df["ItemID"]        = df.ItemID_A
+        #df['sub_a_b']        = df['sub_a_b'].apply(list)
+        df['available_arms'] = None
+        df["visit"]          = 1
+        
+        df_session           = df[['SessionID']].drop_duplicates().reset_index().rename(columns={"index":'SessionIDX'})
+        
+        df = df.merge(df_session).drop(['SessionID'], axis=1)
+        df = df.rename(columns={"ItemID_A":'ItemID'})
 
         return df
 
     @property
+    def metadata_data_frame_path(self) -> Optional[str]:
+        return self.input()[1].path
+        
+    @property
     def read_data_frame_path(self) -> pd.DataFrame:
-        return self.input().path
+        return self.input()[0].path
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
-        df["visit"]         = 1.0
-        df['sub_a_b']       = df['sub_a_b'].apply(list)
-
+        print(data_key)
+        print(df.describe())
+        
         return df
 
     def time_train_test_split(

@@ -1,6 +1,6 @@
 
 from mars_gym.simulation.training import SupervisedModelTraining, DummyTraining
-from loss import RelativeTripletLoss, ContrastiveLoss, BPRLoss
+from loss import RelativeTripletLoss, ContrastiveLoss
 import torch
 import torch.nn as nn
 import luigi
@@ -9,6 +9,8 @@ from typing import Type, Dict, List, Optional, Tuple, Union, Any, cast
 from mars_gym.utils.files import (
     get_index_mapping_path,
 )
+import pickle
+
 from sklearn import manifold
 from time import time
 import os
@@ -22,6 +24,15 @@ from scipy.sparse import csr_matrix
 from pandas.api.types import CategoricalDtype
 from sklearn.metrics.pairwise import cosine_similarity
 from plot import plot_tsne
+from mars_gym.data.dataset import (
+    preprocess_interactions_data_frame,
+    preprocess_metadata_data_frame,
+    literal_eval_array_columns,
+    InteractionsDataset,
+)
+from mars_gym.utils.index_mapping import (
+    transform_with_indexing,
+)
 
 TORCH_LOSS_FUNCTIONS = dict(
     mse=nn.MSELoss,
@@ -30,7 +41,6 @@ TORCH_LOSS_FUNCTIONS = dict(
     mlm=nn.MultiLabelMarginLoss,
     relative_triplet=RelativeTripletLoss,    
     contrastive_loss=ContrastiveLoss,
-    bpr_loss=BPRLoss
 )
 
 
@@ -57,13 +67,13 @@ class MostPopularTraining(DummyTraining):
         print("fit...")
 
         self.item_counts = df_train.ItemID.value_counts()
+        self.item_counts.loc[0] = 0
 
     def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
         print("get_scores...")
 
         item_idx = ob_dataset._data_frame.ItemID.values
         scores   = self.item_counts.loc[item_idx].fillna(0).values
-
         return scores
 
 class CoOccurrenceTraining(DummyTraining):
@@ -162,12 +172,60 @@ class IKNNTraining(DummyTraining):
     def get_score(self, item_a: int, item_b: int):
         
         try:
-            dot = self.sparse_matrix[self.matrix_item_idx[item_b]] * self.sparse_matrix[self.matrix_item_idx[item_a]].T
+            #dot = self.sparse_matrix[self.matrix_item_idx[item_b]] * self.sparse_matrix[self.matrix_item_idx[item_a]].T
             #sim = np.array(dot.T.todense())[0]
             sim = self.cos_matrix[self.matrix_item_idx[item_b]][self.matrix_item_idx[item_a]]
             return sim#[0]#[self.matrix_item_idx[item_b]]
         except:
             return 0
+
+class TripletPredTraining(DummyTraining):
+    path_item_embedding:  str = luigi.Parameter()
+    from_index_mapping:  str = luigi.Parameter()
+
+    def load_embs(self):
+        # Load extern index mapping
+        if os.path.exists(self.from_index_mapping):
+            with open(self.from_index_mapping, "rb") as f:
+                index_mapping = pickle.load(f)    
+
+        embs = np.loadtxt(self.path_item_embedding)
+
+        return embs, index_mapping
+
+    '''
+    Most Popular Model
+    '''
+    def fit(self, df_train: pd.DataFrame):
+        print("fit...")
+        
+        embs, index_mapping = self.load_embs()
+        self._embs = embs
+        self._from_index_mapping = index_mapping
+
+        
+    def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
+        print("get_scores...")
+
+        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[0]))
+        next_items = list(ob_dataset._data_frame.ItemID.values)
+
+        scores = []
+        for last_item, next_item in zip(last_items, next_items):
+            scores.append(self.get_score(last_item, next_item))
+
+        return scores
+
+    def get_score(self, item_a: int, item_b: int):
+        try:
+            _item_a = self._from_index_mapping[self.project_config.item_column.name][self.reverse_index_mapping[self.project_config.item_column.name][item_a]]
+            _item_b = self._from_index_mapping[self.project_config.item_column.name][self.reverse_index_mapping[self.project_config.item_column.name][item_b]]
+
+            sim = cosine_similarity([self._embs[_item_a]], [self._embs[_item_b]])[0][0]
+            return sim
+        except:
+            return 0
+
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet", "contrastive_loss"], default="relative_triplet")
@@ -199,6 +257,31 @@ class TripletTraining(SupervisedModelTraining):
         plot_tsne(Y[:, 0], Y[:, 1], color).savefig(
             os.path.join(self.output().path, "item_embeddings.jpg"))
 
+    @property
+    def metadata_data_frame(self) -> Optional[pd.DataFrame]:
+        if not hasattr(self, "_metadata_data_frame"):
+            self._metadata_data_frame = (
+                pd.read_csv(self.metadata_data_frame_path)
+                if self.metadata_data_frame_path
+                else None
+            )
+
+            self._metadata_data_frame['ItemID'] = self._metadata_data_frame['ItemID'].astype(str)
+                        
+            if self._metadata_data_frame is not None:
+                literal_eval_array_columns(
+                    self._metadata_data_frame, self.project_config.metadata_columns
+                )
+
+            transform_with_indexing(
+                self._metadata_data_frame, self.index_mapping, self.project_config
+            )
+            self._metadata_data_frame.to_csv('_metadata_data_frame.csv')
+        return self._metadata_data_frame
+
+    @property
+    def embeddings_for_metadata(self) -> Optional[Dict[str, np.ndarray]]:
+        return self.metadata_data_frame
 
     def _get_loss_function(self):
         return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)

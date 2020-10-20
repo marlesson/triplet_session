@@ -104,8 +104,6 @@ class MFWithBPRDataset(Dataset):
         return inputs, output
         
 class TripletWithNegativeListDataset(InteractionsDataset):
-        
-
     def __init__(self,
                 data_frame: pd.DataFrame,
                 embeddings_for_metadata: Optional[Dict[Any, np.ndarray]],
@@ -120,15 +118,31 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         self.len_all_items = len(self.all_items)
         self._negative_proportion = 1
         #np.array(list(range(self._data_frame[self._input_columns[0]].max())) )
-        self.__getitem__([1])
+
+        self.positive_interactions = embeddings_for_metadata.set_index('ItemID')
+
+        self.__getitem__([1, 100])
 
     def __len__(self) -> int:
         return self._data_frame.shape[0]
 
+    def create_co_occurences_matrix(self, allowed_words, documents):
+        word_to_id = dict(zip(allowed_words, range(len(allowed_words))))
+        documents_as_ids = [np.sort([word_to_id[w] for w in doc if w in word_to_id]).astype('uint32') for doc in documents]
+        row_ind, col_ind = zip(*itertools.chain(*[[(i, w) for w in doc] for i, doc in enumerate(documents_as_ids)]))
+        data = np.ones(len(row_ind), dtype='uint32')  # use unsigned int for better memory utilization
+        max_word_id = max(itertools.chain(*documents_as_ids)) + 1
+        docs_words_matrix = csr_matrix((data, (row_ind, col_ind)), shape=(len(documents_as_ids), max_word_id))  # efficient arithmetic operations with CSR * CSR
+        words_cooc_matrix = docs_words_matrix.T * docs_words_matrix  # multiplying docs_words_matrix with its transpose matrix would generate the co-occurences matrix
+        words_cooc_matrix.setdiag(0)
+
+        return words_cooc_matrix, word_to_id 
+        
+
     def _get_negatives(self, all_positive):
         sub_negative = self.setdiff(self.all_items, all_positive)
         np.random.shuffle(sub_negative)
-        return sub_negative
+        return sub_negative[:2000]
 
     def setdiff(self, ticks, new_ticks):
         #return np.setdiff1d(ticks, new_ticks)
@@ -141,12 +155,15 @@ class TripletWithNegativeListDataset(InteractionsDataset):
 
         rows: pd.Series = self._data_frame.iloc[indices]
         
-        item_arch      = rows[self._input_columns[2].name].values
-        item_positive  = rows[self._input_columns[3].name].values
-        all_positives  = rows[self._input_columns[4].name].values
-        all_pos        = rows[self._project_config.auxiliar_output_columns[0].name].values
+        item_arch      = rows[self._input_columns[1].name].values
+        item_positive  = rows[self._input_columns[2].name].values
+        #all_positives  = rows[self._input_columns[3].name].values
+        arch_all_positives  = self.positive_interactions.loc[item_arch].sub_a_b_all.values
+        pos_all_positives   = self.positive_interactions.loc[item_positive].sub_a_b_all.values
+        all_positives       = [np.unique(a + p) for a, p in zip(arch_all_positives, pos_all_positives)]
 
-        output         = rows[self._project_config.output_column.name].values
+        all_pos             = rows[self._project_config.auxiliar_output_columns[0].name].values
+        output              = rows[self._project_config.output_column.name].values
         
         if self._project_config.auxiliar_output_columns:
             output = tuple(rows[auxiliar_output_column.name].values

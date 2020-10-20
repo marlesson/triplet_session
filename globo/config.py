@@ -13,7 +13,7 @@ globo_interaction = ProjectConfig(
     user_column=Column("SessionID", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",
-    available_arms_column_name="AvailableItems",
+    available_arms_column_name="",
     other_input_columns=[
         Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
@@ -28,7 +28,7 @@ globo_interaction_with_negative_sample = ProjectConfig(
     user_column=Column("SessionID", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",
-    available_arms_column_name="AvailableItems",
+    available_arms_column_name="",
     other_input_columns=[
         Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
@@ -44,7 +44,7 @@ globo_rnn = ProjectConfig(
     user_column=Column("SessionID", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",
-    available_arms_column_name="AvailableItems",
+    available_arms_column_name="",
     other_input_columns=[
         Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
@@ -60,7 +60,7 @@ globo_mf_bpr = ProjectConfig(
     user_column=Column("SessionID", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",
-    available_arms_column_name="AvailableItems",
+    available_arms_column_name="",
     other_input_columns=[
         Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
@@ -72,16 +72,14 @@ globo_triplet = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.IntraSessionInteractionsDataFrame,
     dataset_class=dataset.TripletWithNegativeListDataset,
-    user_column=Column("SessionID", IOType.INDEXABLE),
+    user_column=Column("SessionIDX", IOType.INDEXABLE),
     item_column=Column("ItemID", IOType.INDEXABLE),
     timestamp_column_name="Timestamp",
-    other_input_columns=[Column("ItemID_A", IOType.INDEXABLE, same_index_as="ItemID"), 
-                        Column("ItemID_B", IOType.INDEXABLE, same_index_as="ItemID"), 
-                        Column("sub_a_b", IOType.INDEXABLE_ARRAY, same_index_as="ItemID")],
+    other_input_columns=[Column("ItemID_B", IOType.INDEXABLE, same_index_as="ItemID")],
+    metadata_columns=[Column("sub_a_b_all", IOType.INDEXABLE_ARRAY, same_index_as="ItemID")],
     output_column=Column("visit", IOType.NUMBER),
     auxiliar_output_columns=[Column("relative_pos", IOType.NUMBER), 
-                            Column("total_ocr", IOType.NUMBER), 
-                            Column("prob", IOType.NUMBER)],
+                            Column("total_ocr", IOType.NUMBER)],
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )  
 
