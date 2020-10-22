@@ -10,6 +10,7 @@ from mars_gym.utils.files import (
     get_index_mapping_path,
 )
 import pickle
+from tqdm import tqdm
 
 from sklearn import manifold
 from time import time
@@ -111,7 +112,7 @@ class CoOccurrenceTraining(DummyTraining):
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
-        for last_item, next_item in zip(last_items, next_items):
+        for last_item, next_item in tqdm(zip(last_items, next_items), total=len(last_items)):
             scores.append(self.get_score(last_item, next_item))
 
         return scores
@@ -164,7 +165,7 @@ class IKNNTraining(DummyTraining):
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
-        for last_item, next_item in zip(last_items, next_items):
+        for last_item, next_item in tqdm(zip(last_items, next_items), total=len(last_items)):
             scores.append(self.get_score(last_item, next_item))
 
         return scores
@@ -201,8 +202,8 @@ class TripletPredTraining(DummyTraining):
         
         embs, index_mapping = self.load_embs()
         self._embs = embs
-        self._from_index_mapping = index_mapping
-
+        self._from_index_mapping = index_mapping[self.project_config.item_column.name]
+        self._rev_index_mapping = self.reverse_index_mapping[self.project_config.item_column.name]
         
     def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
         print("get_scores...")
@@ -211,21 +212,20 @@ class TripletPredTraining(DummyTraining):
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
-        for last_item, next_item in zip(last_items, next_items):
+        for last_item, next_item in tqdm(zip(last_items, next_items), total=len(last_items)):
             scores.append(self.get_score(last_item, next_item))
 
         return scores
 
     def get_score(self, item_a: int, item_b: int):
         try:
-            _item_a = self._from_index_mapping[self.project_config.item_column.name][self.reverse_index_mapping[self.project_config.item_column.name][item_a]]
-            _item_b = self._from_index_mapping[self.project_config.item_column.name][self.reverse_index_mapping[self.project_config.item_column.name][item_b]]
-
-            sim = cosine_similarity([self._embs[_item_a]], [self._embs[_item_b]])[0][0]
+            _item_a = self._from_index_mapping[self._rev_index_mapping[item_a]]
+            _item_b = self._from_index_mapping[self._rev_index_mapping[item_b]]
+            #sim = cosine_similarity([self._embs[_item_a]], [self._embs[_item_b]])[0][0]
+            sim = self._embs[_item_a].dot(self._embs[_item_b])
             return sim
         except:
             return 0
-
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet", "contrastive_loss"], default="relative_triplet")
