@@ -159,20 +159,10 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     def read_data_frame(self) -> pd.DataFrame:
         df = pd.read_csv(self.read_data_frame_path)#.sample(10000)
         
-        if self.index_mapping_path:
-            df = self.filter_mapping(df)
-
         return df
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
-        return df
-
-    def filter_mapping(self, df):
-        with open(self.index_mapping_path, "rb") as f:
-            _index_mapping = pickle.load(f)        
-
-        df = df[df[self.item_property].astype(str).isin(list(_index_mapping[self.item_property].keys()))]
-
+        
         return df
 
     def time_train_test_split(

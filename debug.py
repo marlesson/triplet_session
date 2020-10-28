@@ -151,18 +151,19 @@ if __name__ == '__main__':
   # --run-evaluate  \
   # --sample-size-eval 5000
 
-  # job = TripletPredTraining(
-  #   project="globo.config.globo_interaction",
-  #   data_frames_preparation_extra_params={
-  #     "sample_days": 4, 
-  #     "column_stratification": "SessionID",
-  #     "history_window": 10},
-  #   test_split_type= "time",
-  #   dataset_split_method="column",    
-  #   sample_size_eval=5000,
-  #   path_item_embedding="/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____e18c3fa0be/item_embeddings.npy",
-  #   from_index_mapping="/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____e18c3fa0be/index_mapping.pkl"
-  # )
+  job = TripletPredTraining(
+    project="diginetica.config.diginetica_interaction",
+    data_frames_preparation_extra_params={
+      "sample_days": 8, 
+      "column_stratification": "SessionID",
+      "history_window": 10},
+    test_split_type= "time",
+    dataset_split_method="column",    
+    sample_size_eval=5000,
+    run_evaluate=True,
+    path_item_embedding="/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy",
+    from_index_mapping="/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl"
+  )
 
 
   # mars-gym run supervised \
@@ -219,25 +220,25 @@ if __name__ == '__main__':
   # )
 
      
-  job = SupervisedModelTraining(
-    project="globo.config.globo_interaction_with_negative_sample",
-    recommender_module_class="model.TransformerModel",
-    recommender_extra_params={
-      "n_factors": 100, 
-      "dropout": 0.5,
-      "hist_size": 10,
-      "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/index_mapping.pkl",
-      "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/item_embeddings.npy", 
-      "freeze_embedding": False},
-    data_frames_preparation_extra_params={
-      "sample_days": 4, 
-      "history_window": 10, 
-      "column_stratification": "SessionID"},
-    test_split_type= "time",
-    dataset_split_method="column",
-    metrics=["loss"],
-    epochs=2,
-    run_evaluate=True,
-    sample_size_eval=5000
-  )      
+  # job = SupervisedModelTraining(
+  #   project="globo.config.globo_interaction_with_negative_sample",
+  #   recommender_module_class="model.TransformerModel",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "dropout": 0.5,
+  #     "hist_size": 10,
+  #     "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/index_mapping.pkl",
+  #     "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/item_embeddings.npy", 
+  #     "freeze_embedding": False},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 4, 
+  #     "history_window": 10, 
+  #     "column_stratification": "SessionID"},
+  #   test_split_type= "time",
+  #   dataset_split_method="column",
+  #   metrics=["loss"],
+  #   epochs=2,
+  #   run_evaluate=True,
+  #   sample_size_eval=5000
+  # )      
   job.run()  

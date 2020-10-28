@@ -2,7 +2,7 @@
 # Triplet
 #########################################
 
-# TripletTraining____mars_gym_model_b____d5f489bf3a
+# TripletTraining____mars_gym_model_b____29a21f2c1e
 
 
 PYTHONPATH="."  luigi  \
@@ -10,8 +10,10 @@ PYTHONPATH="."  luigi  \
  --project diginetica.config.diginetica_triplet  \
  --recommender-module-class model.TripletNet  \
  --recommender-extra-params '{"n_factors": 100, "use_normalize": true, "negative_random": 0.05, "dropout": 0.2}'  \
- --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionIDX", 
- "max_itens_per_session": 30, "min_itens_interactions": 2, "max_relative_pos": 3, "filter_first_interaction": false}' \
+ --data-frames-preparation-extra-params '{
+    "sample_days": 8, "column_stratification": "SessionIDX", 
+    "max_itens_per_session": 10, "min_itens_interactions": 2, "max_relative_pos": 3, 
+    "pos_max_deep": 1, "filter_first_interaction": false}' \
  --loss-function-params '{"triplet_loss": "bpr_triplet", "swap": true, "l2_reg": 1e-6, "reduction": "mean", "c": 100}'  \
  --optimizer-params '{"weight_decay": 1e-5}' \
  --optimizer adam \
@@ -27,30 +29,6 @@ PYTHONPATH="."  luigi  \
  --generator-workers 10  \
  --epochs 500  \
  --obs ""
-
-
-# PYTHONPATH="."  luigi  \
-# --module train TripletTraining  \
-# --project diginetica.config.diginetica_triplet  \
-# --recommender-module-class model.TripletNet  \
-# --recommender-extra-params '{"n_factors": 100, "use_normalize": true, "negative_random": 0.05, "dropout": 0.2}'  \
-# --data-frames-preparation-extra-params '{"sample_days": 8, "column_stratification": "SessionIDX", 
-# "max_itens_per_session": 20, "min_itens_interactions": 2, "max_relative_pos": 3}' \
-# --loss-function-params '{"triplet_loss": "triplet_margin",  "swap": true, "l2_reg": 1e-6, "reduction": "mean", "c": 100}'  \
-# --optimizer-params '{"weight_decay": 1e-5}' \
-# --optimizer adam \
-# --learning-rate 1e-4 \
-# --early-stopping-min-delta 0.0001  \
-# --early-stopping-patience 20  \
-# --test-split-type time  \
-# --dataset-split-method column  \
-# --metrics='["loss","triplet_dist", "triplet_acc"]'  \
-# --save-item-embedding-tsv  \
-# --local-scheduler  \
-# --batch-size 128  \
-# --generator-workers 10  \
-# --epochs 200  \
-# --obs ""
 
 
 #mars-gym run evaluation --model-task-id SupervisedModelTraining____mars_gym_model_b____43d2b34707 --only-new-interactions --only-exist-items
@@ -125,8 +103,8 @@ PYTHONPATH="."  luigi  \
 --project diginetica.config.diginetica_interaction \
 --local-scheduler  \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
---path-item-embedding "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____593699fc03/item_embeddings.npy" \
---from-index-mapping "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____593699fc03/index_mapping.pkl" \
+--path-item-embedding "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy" \
+--from-index-mapping "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl" \
 --test-split-type time \
 --dataset-split-method column \
 --run-evaluate  \
@@ -168,8 +146,8 @@ mars-gym run supervised \
   "n_factors": 100, 
   "dropout": 0.1, 
   "hist_size": 10, 
-  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____593699fc03/index_mapping.pkl",
-  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____593699fc03/item_embeddings.npy", 
+  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
 --early-stopping-min-delta 0.0001 \
@@ -225,8 +203,8 @@ mars-gym run supervised \
   "dropout": 0.2, 
   "hist_size": 10, 
   "weight_decay": 1e-3, 
-  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____3839c704df/index_mapping.pkl",
-  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____3839c704df/item_embeddings.npy", 
+  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
 --early-stopping-min-delta 0.0001 \
@@ -280,8 +258,8 @@ mars-gym run supervised \
   "hidden_size": 100, 
   "n_layers": 1, 
   "dropout": 0.25, 
-  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/index_mapping.pkl",
-  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/item_embeddings.npy", 
+  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
   "freeze_embedding": false
   }' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
@@ -340,8 +318,8 @@ mars-gym run supervised \
   "p_nv": 4,  
   "dropout": 0.1, 
   "hist_size": 10, 
-  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/index_mapping.pkl",
-  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/item_embeddings.npy", 
+  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
 --early-stopping-min-delta 0.0001 \
@@ -398,8 +376,8 @@ mars-gym run supervised \
   "num_heads": 1, 
   "dropout": 0.5, 
   "hist_size": 10,
-  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/index_mapping.pkl",
-  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/item_embeddings.npy", 
+  "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+  "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 8, 
@@ -450,8 +428,8 @@ mars-gym run supervised \
 # --project diginetica.config.diginetica_rnn \
 # --recommender-module-class model.GRURecModel \
 # --recommender-extra-params '{"n_factors": 100, "hidden_size": 100, "n_layers": 1, "dropout": 0.2, 
-#   "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/index_mapping.pkl",
-#   "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____d5f489bf3a/item_embeddings.npy", 
+#   "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/index_mapping.pkl",
+#   "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____29a21f2c1e/item_embeddings.npy", 
 #   "freeze_embedding": false}' \
 # --data-frames-preparation-extra-params '{"sample_days": 8, "history_window": 10, "column_stratification": "SessionID"}' \
 # --early-stopping-min-delta 0.0001 \

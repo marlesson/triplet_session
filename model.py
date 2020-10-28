@@ -756,11 +756,11 @@ class MatrixFactorizationModel(RecommenderModule):
         self.hist_size = hist_size
         self.weight_decay = weight_decay # 0.025#1e-5
 
-        #self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
+        self.hist_embeddings = nn.Embedding(self._n_items, n_factors)
         #self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, freeze_embedding)
 
-        self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
-                                                from_index_mapping, index_mapping, freeze_embedding)
+        #self.hist_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+        #                                        from_index_mapping, index_mapping, freeze_embedding)
 
 
 

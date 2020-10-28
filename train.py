@@ -208,24 +208,29 @@ class TripletPredTraining(DummyTraining):
     def get_scores(self, agent: BanditAgent, ob_dataset: Dataset) -> List[float]:
         print("get_scores...")
 
-        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[0]))
+        hist_items = list(ob_dataset._data_frame.ItemIDHistory)
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []
-        for last_item, next_item in tqdm(zip(last_items, next_items), total=len(last_items)):
-            scores.append(self.get_score(last_item, next_item))
+        for hist_item, next_item in tqdm(zip(hist_items, next_items), total=len(hist_items)):
+            scores.append(self.get_score(hist_item, next_item))
 
-        return scores
+        return pd.Series(scores).fillna(0).tolist()
 
-    def get_score(self, item_a: int, item_b: int):
-        try:
-            _item_a = self._from_index_mapping[self._rev_index_mapping[item_a]]
-            _item_b = self._from_index_mapping[self._rev_index_mapping[item_b]]
-            #sim = cosine_similarity([self._embs[_item_a]], [self._embs[_item_b]])[0][0]
-            sim = self._embs[_item_a].dot(self._embs[_item_b])
-            return sim
-        except:
-            return 0
+    def get_score(self, hist_items: List[int], item_b: int):
+
+        emb_hist = self.get_emb(hist_items)
+        emb_item = self.get_emb([item_b])
+        dot_sim  = emb_hist.dot(emb_item.T).reshape(-1)
+        if 0 in hist_items:
+            return  dot_sim[:hist_items.index(0)].mean()
+        else:
+            return  dot_sim.mean()
+
+
+    def get_emb(self, uids: List[int]):
+        embs = [self._embs[self._from_index_mapping[self._rev_index_mapping[uid]]] for uid in uids]
+        return np.array(embs)
 
 class TripletTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["relative_triplet", "contrastive_loss"], default="relative_triplet")
