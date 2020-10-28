@@ -31,10 +31,10 @@ from datetime import datetime, timedelta
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"
 ] if "OUTPUT_PATH" in os.environ else os.path.join("output")
-BASE_DIR: str = os.path.join(OUTPUT_PATH, "globo")
-DATASET_DIR: str = os.path.join(OUTPUT_PATH, "globo", "dataset")
+BASE_DIR: str = os.path.join(OUTPUT_PATH, "diginetica")
+DATASET_DIR: str = os.path.join(OUTPUT_PATH, "diginetica", "dataset")
 
-BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "globo", "archive", 'clicks', 'clicks', '*.csv')
+BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "diginetica", "dataset-train-diginetica", 'train-item-views.csv')
 
 ## AUX
 pad_history = F.udf(
@@ -112,12 +112,12 @@ class SessionPrepareDataset(BasePySparkTask):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
-        df = df.withColumnRenamed("session_id", "SessionID")\
-            .withColumnRenamed("click_timestamp", "Timestamp_")\
-            .withColumnRenamed("click_article_id", "ItemID")\
-            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
-            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
+        df = spark.read.option("delimiter", ";").csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = df.withColumnRenamed("sessionId", "SessionID")\
+            .withColumnRenamed("eventdate", "Timestamp")\
+            .withColumnRenamed("itemId", "ItemID")\
+            .withColumn("Timestamp", (col("Timestamp").cast("long") + col("timeframe").cast("long")/1000).cast("timestamp"))\
+            .orderBy(col('Timestamp'), col('SessionID'), col('timeframe')).select("SessionID", "ItemID", "Timestamp", "timeframe")
                     
         # Drop duplicate item in that same session
         df = df.dropDuplicates(['SessionID', 'ItemID'])
@@ -289,13 +289,13 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         max_relative_pos       = self.max_relative_pos
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
-        df = df.withColumnRenamed("session_id", "SessionID")\
-            .withColumnRenamed("click_timestamp", "Timestamp_")\
-            .withColumnRenamed("click_article_id", "ItemID")\
-            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
-            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
-               
+        df = spark.read.option("delimiter", ";").csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = df.withColumnRenamed("sessionId", "SessionID")\
+            .withColumnRenamed("eventdate", "Timestamp")\
+            .withColumnRenamed("itemId", "ItemID")\
+            .withColumn("Timestamp", (col("Timestamp").cast("long") + col("timeframe").cast("long")/1000).cast("timestamp"))\
+            .orderBy(col('Timestamp'), col('SessionID'), col('timeframe')).select("SessionID", "ItemID", "Timestamp", "timeframe")
+                   
         # Drop duplicate item in that same session
         df       = df.dropDuplicates(['SessionID', 'ItemID'])
 

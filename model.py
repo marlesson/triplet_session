@@ -17,10 +17,13 @@ from numpy.random.mtrand import RandomState
 import random
 
 from typing import Optional, Callable, Tuple
-
+import math
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from util.transformer import *
+import copy
+
 
 #---------------------------------- AUX --------------------
 
@@ -35,14 +38,14 @@ def load_embedding(_n_items, n_factors, path_item_embedding, path_from_index_map
                 from_index_mapping = pickle.load(f)    
 
         # Load weights embs
-        extern_weights = np.loadtxt(path_item_embedding)
+        extern_weights = np.loadtxt(path_item_embedding)#*100
         intern_weights = embs.weight.detach().numpy()
 
         # new_x =  g(f-1(x))
         reverse_index_mapping = {value_: key_ for key_, value_ in index_mapping['ItemID'].items()}
         
         embs_weights = np.array([extern_weights[from_index_mapping['ItemID'][reverse_index_mapping[i]]] if from_index_mapping['ItemID'][reverse_index_mapping[i]] > 1 else intern_weights[i] for i in np.arange(_n_items) ])
-
+        #from_index_mapping['ItemID'][reverse_index_mapping[i]]
         #from IPython import embed; embed()
         embs = nn.Embedding.from_pretrained(torch.from_numpy(embs_weights).float(), freeze=freeze_embedding)
         
@@ -119,6 +122,50 @@ class PointWiseFeedForward(torch.nn.Module):
         return outputs
 
 
+# Temporarily leave PositionalEncoding module here. Will be moved somewhere else.
+class PositionalEncoding(nn.Module):
+    r"""Inject some information about the relative or absolute position of the tokens
+        in the sequence. The positional encodings have the same dimension as
+        the embeddings, so that the two can be summed. Here, we use sine and cosine
+        functions of different frequencies.
+    .. math::
+        \text{PosEncoder}(pos, 2i) = sin(pos/10000^(2i/d_model))
+        \text{PosEncoder}(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+        \text{where pos is the word position and i is the embed idx)
+    Args:
+        d_model: the embed dim (required).
+        dropout: the dropout value (default=0.1).
+        max_len: the max. length of the incoming sequence (default=5000).
+    Examples:
+        >>> pos_encoder = PositionalEncoding(d_model)
+    """
+
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        r"""Inputs of forward function
+        Args:
+            x: the sequence fed to the positional encoder model (required).
+        Shape:
+            x: [sequence length, batch size, embed dim]
+            output: [sequence length, batch size, embed dim]
+        Examples:
+            >>> output = pos_encoder(x)
+        """
+
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
 # --------------------------
 
 
@@ -172,12 +219,136 @@ class DotModel(RecommenderModule):
         
         dot_prod = torch.matmul(item_emb.unsqueeze(1), hist_emb.permute(0, 2, 1))
 
-        dot_prod = self.flatten(dot_prod)
-        
-        ## DayofWeek Emb
-        #dayofweek_emb = self.dayofweek_embeddings(dayofweek.long())
+        mask_2 = (item_history_ids != 0).unsqueeze(-2).to(item_history_ids.device).float()
+        output = dot_prod * mask_2
+        # output = output.sum(2)/(mask_2.sum(2) + 0.1) # normalize
+        # out = torch.sigmoid(output)
 
+        dot_prod = self.flatten(output)
         out = torch.sigmoid(self.dense(dot_prod))
+
+        return out
+
+class TransformerModel(RecommenderModule):
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        n_factors: int,
+        path_item_embedding: str,
+        from_index_mapping: str,
+        dropout: float,
+        hist_size: int,
+        freeze_embedding: bool
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        
+        ninp = 100
+        nhid = 100
+        nhead = 1
+        nlayers = 1
+
+        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
+
+        self.pos_encoder = PositionalEncoding(ninp, dropout)
+        encoder_layers =  nn.TransformerEncoderLayer(ninp, nhead, nhid, dropout)
+        self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, nlayers)
+
+
+        self.transform_heads = 1
+        self.transform_n = 1
+        self.num_filters = 32
+        self.filter_sizes: List[int] = [1, 3, 5]
+        self.conv_size_out = len(self.filter_sizes) * self.num_filters
+
+
+        self.pe = PositionalEncoder(n_factors)
+        self.layers = self.get_clones(EncoderLayer(
+            n_factors, self.transform_heads, dropout=dropout), self.transform_n)
+        self.norm = Norm(n_factors)
+
+        self.convs1 = nn.ModuleList(
+            [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
+
+
+        self.dense = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(hist_size+self.conv_size_out, int(hist_size / 2)),
+            nn.SELU(),
+            nn.Linear(int(hist_size / 2), 1),
+        )
+
+        self.use_normalize = True
+        self.weight_init = lecun_normal_init
+        self.apply(self.init_weights)
+
+    def init_weights(self, module: nn.Module):
+        if type(module) == nn.Linear:
+            self.weight_init(module.weight)
+            module.bias.data.fill_(0.1)
+    
+    #We can then build a convenient cloning function that can generate multiple layers:
+    def get_clones(self, module, N):
+        return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
+            
+    def layer_transform(self, x, mask=None):
+        for i in range(self.transform_n):
+            x = self.layers[i](x, mask)
+        x = self.norm(x)
+        return x            
+
+    def conv_block(self, x):
+	# conv_out.size() = (batch_size, out_channels, dim, 1)
+        x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+
+        return x
+
+    def flatten(self, input):
+        return input.view(input.size(0), -1)
+
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+    
+    def _generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def forward(self, session_ids, item_ids, item_history_ids):
+        # Item emb
+        item_emb = self.normalize(self.item_embeddings(item_ids))
+
+        # Item History embs
+        hist_emb = self.normalize(self.item_embeddings(item_history_ids))
+
+        # Create transform mask
+        #mask = self._generate_square_subsequent_mask(len(item_history_ids)).to(item_history_ids.device)
+
+        #src = self.pos_encoder(hist_emb)
+        #hist_emb = self.transformer_encoder(src, mask)
+
+        mask = (item_history_ids != 0).unsqueeze(-2)
+        hist_emb = self.pe(hist_emb)
+        hist_emb = self.layer_transform(hist_emb, mask)        
+
+
+        hist_conv = self.conv_block(hist_emb)
+
+        # 
+        mask_2 = (item_history_ids != 0).unsqueeze(-2).float()
+        dot_prod = torch.matmul(item_emb.unsqueeze(1), hist_emb.permute(0, 2, 1))
+        output = dot_prod * mask_2
+
+        dot_prod = self.flatten(output)
+        out = torch.sigmoid(self.dense(torch.cat((dot_prod, hist_conv), dim=1)))
 
         return out
 
@@ -622,7 +793,7 @@ class MatrixFactorizationModel(RecommenderModule):
         item_emb = self.normalize(self.item_embeddings(item_ids))
 
         # Item History embs
-        hist_emb = self.normalize(self.item_embeddings(item_history_ids), 2)
+        hist_emb = self.normalize(self.hist_embeddings(item_history_ids), 2)
 
         #hist_emb_mean = torch.stack([self.linear_w_avg(emb) for emb in hist_emb], dim=0)
         #hist_mean_emb = hist_emb.mean(1)
@@ -750,10 +921,12 @@ class TripletNet(RecommenderModule):
 
         #arch_item_emb = self.embedded_dropout(self.item_embeddings, item_ids.long(), dropout=self.dropout if self.training else 0)
         arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
+        #arch_item_emb += pos_relative_emb
 
         #arch_item_emb = self.normalize(self.item_embeddings(item_ids.long()))
         #positive_item_emb = self.embedded_dropout(self.item_embeddings, positive_item_ids.long(), dropout=self.dropout if self.training else 0)
         positive_item_emb = self.normalize(self.item_embeddings(positive_item_ids.long()))
+        positive_item_emb += pos_relative_emb
         #positive_item_emb = positive_item_emb - pos_relative_emb
 
         #raise(Exception(positive_item_emb.shape, pos_relative_emb.shape, arch_item_emb.shape))

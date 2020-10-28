@@ -193,17 +193,41 @@ if __name__ == '__main__':
   # --run-evaluate  \
     
 
+  # job = SupervisedModelTraining(
+  #   project="globo.config.globo_interaction_with_negative_sample",
+  #   recommender_module_class="model.SASRec",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "num_blocks": 2, 
+  #     "num_heads": 1, 
+  #     "dropout": 0.5,
+  #     "hist_size": 10,
+  #     "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/index_mapping.pkl",
+  #     "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/item_embeddings.npy", 
+  #     "freeze_embedding": False},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 4, 
+  #     "history_window": 10, 
+  #     "column_stratification": "SessionID"},
+  #   test_split_type= "time",
+  #   dataset_split_method="column",
+  #   metrics=["loss"],
+  #   loss_function="bce_logists", 
+  #   epochs=2,
+  #   run_evaluate=True,
+  #   sample_size_eval=5000
+  # )
+
+     
   job = SupervisedModelTraining(
     project="globo.config.globo_interaction_with_negative_sample",
-    recommender_module_class="model.SASRec",
+    recommender_module_class="model.TransformerModel",
     recommender_extra_params={
       "n_factors": 100, 
-      "num_blocks": 2, 
-      "num_heads": 1, 
       "dropout": 0.5,
       "hist_size": 10,
-      "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c8850af7af/index_mapping.pkl",
-      "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____c8850af7af/item_embeddings.npy", 
+      "from_index_mapping": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/index_mapping.pkl",
+      "path_item_embedding": "/media/workspace/triplet_session/output/models/TripletTraining/results/TripletTraining____mars_gym_model_b____a0fb4ce70e/item_embeddings.npy", 
       "freeze_embedding": False},
     data_frames_preparation_extra_params={
       "sample_days": 4, 
@@ -212,10 +236,8 @@ if __name__ == '__main__':
     test_split_type= "time",
     dataset_split_method="column",
     metrics=["loss"],
-    loss_function="bce_logists", 
     epochs=2,
     run_evaluate=True,
     sample_size_eval=5000
-  )
-      
+  )      
   job.run()  

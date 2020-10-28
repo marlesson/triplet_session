@@ -3,10 +3,10 @@ from mars_gym.data.dataset import (
     InteractionsWithNegativeItemGenerationDataset,
 )
 from mars_gym.meta_config import *
-from yoochoose import data, data2
+from diginetica import data
 import dataset
 
-yoochoose_interaction = ProjectConfig(
+diginetica_interaction = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.SessionInteractionDataFrame,
     dataset_class=InteractionsDataset,
@@ -21,7 +21,7 @@ yoochoose_interaction = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
-yoochoose_interaction_with_negative_sample = ProjectConfig(
+diginetica_interaction_with_negative_sample = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.SessionInteractionDataFrame,
     dataset_class=InteractionsWithNegativeItemGenerationDataset,
@@ -36,7 +36,24 @@ yoochoose_interaction_with_negative_sample = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
-yoochoose_mf_bpr = ProjectConfig(
+
+diginetica_rnn = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=dataset.InteractionsDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="",
+    other_input_columns=[
+        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+    ],
+    output_column=Column("ItemID", IOType.INDEXABLE),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)
+
+
+diginetica_mf_bpr = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.SessionInteractionDataFrame,
     dataset_class=dataset.MFWithBPRDataset,
@@ -51,7 +68,7 @@ yoochoose_mf_bpr = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
-yoochoose_triplet =  ProjectConfig(
+diginetica_triplet = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.IntraSessionInteractionsDataFrame,
     dataset_class=dataset.TripletWithNegativeListDataset,

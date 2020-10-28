@@ -160,8 +160,9 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         #all_positives  = rows[self._input_columns[3].name].values
         arch_all_positives  = self.positive_interactions.loc[item_arch].sub_a_b_all.values
         pos_all_positives   = self.positive_interactions.loc[item_positive].sub_a_b_all.values
-        all_positives       = [np.unique(a + p) for a, p in zip(arch_all_positives, pos_all_positives)]
+        #print(arch_all_positives,pos_all_positives)
 
+        all_positives       = [np.unique(a + p) for a, p in zip(arch_all_positives, pos_all_positives)]
         all_pos             = rows[self._project_config.auxiliar_output_columns[0].name].values
         output              = rows[self._project_config.output_column.name].values
         
