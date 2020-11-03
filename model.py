@@ -844,7 +844,7 @@ class TripletNet(RecommenderModule):
 
         self.use_normalize   = use_normalize
         self.item_embeddings = nn.Embedding(self._n_items, n_factors)
-        self.pos_embeddings = nn.Embedding(10, n_factors)
+        self.pos_embeddings = nn.Embedding(30, n_factors)
 
         self.negative_random = negative_random
         self.dropout = dropout

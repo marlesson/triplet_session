@@ -159,20 +159,9 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     def read_data_frame(self) -> pd.DataFrame:
         df = pd.read_csv(self.read_data_frame_path)#.sample(10000)
         
-        if self.index_mapping_path:
-            df = self.filter_mapping(df)
-
         return df
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
-        return df
-
-    def filter_mapping(self, df):
-        with open(self.index_mapping_path, "rb") as f:
-            _index_mapping = pickle.load(f)        
-
-        df = df[df[self.item_property].astype(str).isin(list(_index_mapping[self.item_property].keys()))]
-
         return df
 
     def time_train_test_split(
@@ -249,7 +238,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
     def add_positive_interactions(self, df):
         
         # Filter more then 1 ocurrence for positive interactions
-        df = df.filter(col("total_ocr_dupla") > 1)
+        df = df.filter(col("total_ocr_dupla") >= 1)
     
         df = df\
             .groupby("ItemID_A")\
@@ -294,7 +283,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
             .withColumnRenamed("_c1", "Timestamp")\
             .withColumnRenamed("_c2", "ItemID")\
             .withColumnRenamed("_c3", "Category")\
-            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp").filter(col('Timestamp') < '2017-10-16 24:59:59')
+            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp")#.filter(col('Timestamp') < '2017-10-16 24:59:59')
                
         # Drop duplicate item in that same session
         df       = df.dropDuplicates(['SessionID', 'ItemID'])
@@ -374,6 +363,7 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     min_itens_interactions: int = luigi.IntParameter(default=3)
     max_relative_pos: int = luigi.IntParameter(default=3)
     days_test: int = luigi.IntParameter(default=1)
+    pos_max_deep: int = luigi.IntParameter(default=1)    
     filter_first_interaction: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
@@ -381,8 +371,9 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
                         max_itens_per_session=self.max_itens_per_session,
                         sample_days=self.sample_days,
                         min_itens_interactions=self.min_itens_interactions,
-                        max_relative_pos=self.max_relative_pos)
-
+                        max_relative_pos=self.max_relative_pos,
+                        pos_max_deep=self.pos_max_deep)
+                        
     @property
     def timestamp_property(self) -> str:
         return "Timestamp"

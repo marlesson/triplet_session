@@ -120,8 +120,9 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         #np.array(list(range(self._data_frame[self._input_columns[0]].max())) )
 
         self.positive_interactions = embeddings_for_metadata.set_index('ItemID')
-
-        self.__getitem__([1, 100])
+        self.positive_interactions['sub_a_b_all'] =  self.positive_interactions.sub_a_b_all.apply(lambda x: [] if str(x) == 'nan' else x)
+        
+        self.__getitem__([1, 2])
 
     def __len__(self) -> int:
         return self._data_frame.shape[0]
@@ -160,9 +161,8 @@ class TripletWithNegativeListDataset(InteractionsDataset):
         #all_positives  = rows[self._input_columns[3].name].values
         arch_all_positives  = self.positive_interactions.loc[item_arch].sub_a_b_all.values
         pos_all_positives   = self.positive_interactions.loc[item_positive].sub_a_b_all.values
-        #print(arch_all_positives,pos_all_positives)
-
-        all_positives       = [np.unique(a + p) for a, p in zip(arch_all_positives, pos_all_positives)]
+        
+        all_positives       = [np.unique(a + p)  for a, p in zip(arch_all_positives, pos_all_positives)]
         all_pos             = rows[self._project_config.auxiliar_output_columns[0].name].values
         output              = rows[self._project_config.output_column.name].values
         

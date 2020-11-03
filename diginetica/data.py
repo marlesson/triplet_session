@@ -239,7 +239,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
     def add_positive_interactions(self, df):
         
         # Filter more then 1 ocurrence for positive interactions
-        df = df.filter(col("total_ocr_dupla") > 1)
+        df = df.filter(col("total_ocr_dupla") >= 1)
     
         df = df\
             .groupby("ItemID_A")\
@@ -364,6 +364,7 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
     min_itens_interactions: int = luigi.IntParameter(default=3)
     max_relative_pos: int = luigi.IntParameter(default=3)
     days_test: int = luigi.IntParameter(default=1)
+    pos_max_deep: int = luigi.IntParameter(default=1)    
     filter_first_interaction: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
@@ -371,7 +372,8 @@ class IntraSessionInteractionsDataFrame(BasePrepareDataFrames):
                         max_itens_per_session=self.max_itens_per_session,
                         sample_days=self.sample_days,
                         min_itens_interactions=self.min_itens_interactions,
-                        max_relative_pos=self.max_relative_pos)
+                        max_relative_pos=self.max_relative_pos,
+                        pos_max_deep=self.pos_max_deep)
 
     @property
     def timestamp_property(self) -> str:

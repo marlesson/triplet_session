@@ -222,11 +222,11 @@ class TripletPredTraining(DummyTraining):
         emb_hist = self.get_emb(hist_items)
         emb_item = self.get_emb([item_b])
         dot_sim  = emb_hist.dot(emb_item.T).reshape(-1)
+
         if 0 in hist_items:
             return  dot_sim[:hist_items.index(0)].mean()
         else:
             return  dot_sim.mean()
-
 
     def get_emb(self, uids: List[int]):
         embs = [self._embs[self._from_index_mapping[self._rev_index_mapping[uid]]] for uid in uids]
@@ -281,7 +281,7 @@ class TripletTraining(SupervisedModelTraining):
             transform_with_indexing(
                 self._metadata_data_frame, self.index_mapping, self.project_config
             )
-            self._metadata_data_frame.to_csv('_metadata_data_frame.csv')
+            #self._metadata_data_frame.to_csv('_metadata_data_frame.csv')
         return self._metadata_data_frame
 
     @property
