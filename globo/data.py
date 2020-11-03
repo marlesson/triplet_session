@@ -284,8 +284,10 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
             .withColumnRenamed("click_article_id", "ItemID")\
             .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
             .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").cache()
+        
+        print(df.show(2))
 
-        dt  = datetime.strptime('2017-10-16 23:59:59', '%Y-%m-%d %H:%M:%S')
+        dt  = datetime.strptime('2017-10-16 20:59:59', '%Y-%m-%d %H:%M:%S')
         df  = df.filter(col('Timestamp') < dt)
                
         # Drop duplicate item in that same session

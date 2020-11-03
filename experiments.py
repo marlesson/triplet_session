@@ -33,7 +33,7 @@ class ExperimentRuns(luigi.WrapperTask):
     _max_itens_per_session = [5, 10, 20, 30]
     
     # Minimum Interaction between Item A and Item B | +-
-    _min_itens_interactions = [1, 2, 4, 8]
+    _min_itens_interactions = [2, 4, 8]
     
     # Dist máxima between Item A and Item B | ++
     _max_relative_pos = [1, 2, 4, 8, 16, 24]
