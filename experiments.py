@@ -14,8 +14,6 @@ class ExperimentRuns(luigi.WrapperTask):
   
   evaluate: bool = luigi.BoolParameter(default=False)
   
-  evaluate: int = luigi.BoolParameter(default=False)
-  
   experiments: int = luigi.IntParameter(default=1)
 
   project: str = luigi.Parameter(default="diginetica.config.diginetica")
