@@ -27,6 +27,8 @@ from pyspark.sql import Window
 from pyspark.sql.functions import explode, posexplode
 from itertools import chain
 from datetime import datetime, timedelta
+from tqdm import tqdm
+tqdm.pandas()
 
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"

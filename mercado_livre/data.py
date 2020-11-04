@@ -33,10 +33,11 @@ tqdm.pandas()
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"
 ] if "OUTPUT_PATH" in os.environ else os.path.join("output")
-BASE_DIR: str = os.path.join(OUTPUT_PATH, "globo")
-DATASET_DIR: str = os.path.join(OUTPUT_PATH, "globo", "dataset")
+BASE_DIR: str = os.path.join(OUTPUT_PATH, "mercado_livre")
+DATASET_DIR: str = os.path.join(OUTPUT_PATH, "mercado_livre", "dataset")
 
-BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "globo", "archive", 'clicks', 'clicks', '*.csv')
+BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "train_dataset.jl")
+BASE_TEST_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "test_dataset.jl")
 
 ## AUX
 pad_history = F.udf(
@@ -58,6 +59,53 @@ def concat(type):
 
 #####
 
+from dateutil.parser import parse
+from pyspark.sql.types import TimestampType
+parse_date =  udf (lambda x: parse(x), TimestampType())
+
+class PreProcessSessionDataset(BasePySparkTask):
+    def output(self):
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_dataset.csv"))
+    
+    def get_path_dataset(self):
+        return BASE_DATASET_FILE
+
+    def main(self, sc: SparkContext, *args):
+        os.makedirs(DATASET_DIR, exist_ok=True)
+
+        spark    = SparkSession(sc)
+        df = spark.read.json(self.get_path_dataset())
+
+        if not 'item_bought' in df.columns:
+            df = df.withColumn('item_bought', lit(0))
+
+        df = df.withColumn("session_id", F.monotonically_increasing_id())
+
+        df = df.withColumn("event", explode(df.user_history))
+
+        df = df.withColumn('event_info', col("event").getItem("event_info"))\
+                .withColumn('event_timestamp', col("event").getItem("event_timestamp"))\
+                .withColumn('event_type', col("event").getItem("event_type"))
+        
+        df_view = df.select("session_id", "event_timestamp", "event_info", "event_type")
+
+        df_buy  = df.groupBy("session_id").agg(max(df.event_timestamp).alias("event_timestamp"), 
+                                            max(df.item_bought).alias("event_info"))
+        df_buy  = df_buy.withColumn('event_type', lit("buy"))
+        df_buy  = df_buy.withColumn('event_timestamp', F.date_add(df_buy['event_timestamp'], 1))
+
+        df = df_view.union(df_buy)
+        df = df.withColumn('event_timestamp2', parse_date(col('event_timestamp')))
+
+        df.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output().path, index=False)
+
+
+class PreProcessSessionTestDataset(PreProcessSessionDataset):
+    def output(self):
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_test_dataset.csv"))
+    
+    def get_path_dataset(self):
+        return BASE_TEST_DATASET_FILE
 
 ################################## Supervised ######################################
 
@@ -66,7 +114,12 @@ class SessionPrepareDataset(BasePySparkTask):
     history_window: int = luigi.IntParameter(default=10)
     size_available_list: int = luigi.IntParameter(default=100)
     minimum_interactions: int = luigi.IntParameter(default=5)
-    
+    min_session_size: int = luigi.IntParameter(default=2)
+    no_filter_data: bool = luigi.BoolParameter(default=False)
+
+    def requires(self):
+        return PreProcessSessionDataset()
+
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "dataset_prepared_sample={}_win={}_list={}_min_i={}.csv"\
                     .format(self.sample_days, self.history_window, self.size_available_list, self.minimum_interactions),))
@@ -77,7 +130,7 @@ class SessionPrepareDataset(BasePySparkTask):
 
         df = df.withColumn(
             'ItemIDHistory', F.collect_list('ItemID').over(w)
-        ).where(size(col("ItemIDHistory")) >= 2)#\
+        ).where(size(col("ItemIDHistory")) >= self.min_session_size)#\
 
         df = df.withColumn('ItemIDHistory', pad_history(df.ItemIDHistory, lit(self.history_window)))
 
@@ -87,15 +140,22 @@ class SessionPrepareDataset(BasePySparkTask):
         # filter date
         max_timestamp = df.select(max(col('Timestamp'))).collect()[0]['max(Timestamp)']
         init_timestamp = max_timestamp - timedelta(days = self.sample_days)
+        print("filter date", df.count())
         df         = df.filter(col('Timestamp') >= init_timestamp).cache()
+        print("filter date", df.count())
+        print(init_timestamp, max_timestamp)
 
         # Filter minin interactions
         df_item    = df.groupBy("ItemID").count()
         df_item    = df_item.filter(col('count') >= self.minimum_interactions)
+        print("Filter minin interactions", df_item.count())
 
         # Filter session size
         df_session    = df.groupBy("SessionID").count()
-        df_session    = df_session.filter(col('count') >= 2)
+        df_session    = df_session.filter(col('count') >= self.min_session_size)
+        print("Filter session size", df_session.count())
+
+        print(df.show(50))
 
         df = df \
             .join(df_item, "ItemID", how="inner") \
@@ -114,23 +174,34 @@ class SessionPrepareDataset(BasePySparkTask):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = spark.read.option("delimiter", ",").csv(self.input().path, header=True, inferSchema=True)
         df = df.withColumnRenamed("session_id", "SessionID")\
-            .withColumnRenamed("click_timestamp", "Timestamp_")\
-            .withColumnRenamed("click_article_id", "ItemID")\
-            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
-            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_").filter(col('Timestamp') < '2017-10-16 24:59:59')
-                    
-        # Drop duplicate item in that same session
-        df = df.dropDuplicates(['SessionID', 'ItemID'])
+            .withColumnRenamed("event_timestamp2", "Timestamp")\
+            .withColumnRenamed("event_info", "ItemID")\
+            .withColumn("ItemID", col("ItemID").cast("int"))\
+            .withColumn("Timestamp", col("Timestamp").cast("timestamp"))\
+            .orderBy(col('Timestamp'), col('SessionID')).select("SessionID", "ItemID", "Timestamp", "event_type")
 
-        df = self.filter(df)
+
+        if not self.no_filter_data:
+            # Remove Search event
+            df = df.filter(df.event_type != "search")
+
+            # Drop duplicate item in that same session
+            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type'])
+            
+            # Filter 
+            df = self.filter(df)
+
+        
         df = self.add_history(df)
         df = self.add_available_items(df)
-
         df = df.withColumn('visit',lit(1))
+        
+        if self.no_filter_data:
+            df = df.filter(df.ItemID == 0)
 
-        df.toPandas().to_csv(self.output().path, index=False)
+        df.orderBy(col("SessionID")).toPandas().to_csv(self.output().path, index=False)
 
 class SessionInteractionDataFrame(BasePrepareDataFrames):
     sample_days: int = luigi.IntParameter(default=16)
@@ -164,6 +235,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         return df
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
+        
         return df
 
     def time_train_test_split(
@@ -178,6 +250,16 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
         return df[df[self.timestamp_property] < cutoff_date], df[df[self.timestamp_property] >= cutoff_date]
 
+class SessionPrepareTestDataset(SessionPrepareDataset):
+    sample_days: int = luigi.IntParameter(default=365)
+    history_window: int = luigi.IntParameter(default=10)
+    size_available_list: int = luigi.IntParameter(default=1)
+    minimum_interactions: int = luigi.IntParameter(default=0)
+    min_session_size: int = luigi.IntParameter(default=0)
+    no_filter_data: bool = luigi.BoolParameter(default=True)
+
+    def requires(self):
+        return PreProcessSessionTestDataset()
 
 #################################  Triplet ##############################
 
@@ -262,7 +344,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         print(df)
 
         sub_pos = []
-        for i, row in tqdm(df.iterrows(), total=df.shape[0]):
+        for i, row in df.iterrows():
             l = serach_positive(row.name, df, max_deep = self.pos_max_deep, deep=0, list_pos=[])
             sub_pos.append(list(np.unique(l)))
         
@@ -280,27 +362,20 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         max_relative_pos       = self.max_relative_pos
 
         spark    = SparkSession(sc)
-        df = spark.read.csv(BASE_DATASET_FILE, header=True, inferSchema=True)
-        df = df.withColumnRenamed("session_id", "SessionID")\
-            .withColumnRenamed("click_timestamp", "Timestamp_")\
-            .withColumnRenamed("click_article_id", "ItemID")\
-            .withColumn("Timestamp",F.from_unixtime(col("Timestamp_")/lit(1000)).cast("timestamp"))\
-            .orderBy(col('Timestamp')).select("SessionID", "ItemID", "Timestamp", "Timestamp_")
-        
-        print(df.show(2))
-
-        dt  = datetime.strptime('2017-10-16 20:59:59', '%Y-%m-%d %H:%M:%S')
-        df  = df.filter(col('Timestamp') < dt)
-               
+        df = spark.read.option("delimiter", ";").csv(BASE_DATASET_FILE, header=True, inferSchema=True)
+        df = df.withColumnRenamed("sessionId", "SessionID")\
+            .withColumnRenamed("eventdate", "Timestamp")\
+            .withColumnRenamed("itemId", "ItemID")\
+            .withColumn("Timestamp", (col("Timestamp").cast("long") + col("timeframe").cast("long")/1000).cast("timestamp"))\
+            .orderBy(col('Timestamp'), col('SessionID'), col('timeframe')).select("SessionID", "ItemID", "Timestamp", "timeframe")
+                   
         # Drop duplicate item in that same session
         df       = df.dropDuplicates(['SessionID', 'ItemID'])
 
         # filter date
         max_timestamp = df.select(max(col('Timestamp'))).collect()[0]['max(Timestamp)']
         init_timestamp = max_timestamp - timedelta(days = self.sample_days)
-        print("Timestamp:", max_timestamp, init_timestamp)        
-
-        df       = df.filter(col('Timestamp') >= init_timestamp).cache()
+        df         = df.filter(col('Timestamp') >= init_timestamp).cache()
 
         df       = df.groupby("SessionID").agg(
                     max("Timestamp").alias("Timestamp"),
@@ -313,8 +388,6 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         # Filter position in list
         df_pos = df.select(col('SessionID').alias('_SessionID'),
                                     posexplode(df.ItemIDs))
-        
-
 
         # Explode A
         df = df.withColumn("ItemID_A", explode(df.ItemIDs))
@@ -345,9 +418,6 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
         # Calculate and filter probs ocorrence
         df_probs = self.get_df_tuple_probs(df)
         df = df.join(df_probs, (df.ItemID_A == df_probs._ItemID_A) & (df.ItemID_B == df_probs._ItemID_B))
-
-        print(df.show(2))
-        print(df.count())
 
         # Add positive interactoes
         df_positive = self.add_positive_interactions(df)

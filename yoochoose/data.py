@@ -27,6 +27,8 @@ from pyspark.sql import Window
 from pyspark.sql.functions import explode, posexplode
 from itertools import chain
 from datetime import datetime, timedelta
+from tqdm import tqdm
+tqdm.pandas()
 
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"
@@ -261,8 +263,7 @@ class CreateIntraSessionInteractionDataset(BasePySparkTask):
 
         sub_pos = []
         for i, row in df.iterrows():
-            l = serach_positive(row.name, df, max_deep = self.pos_max_deep, deep=0, list_pos=[])
-            sub_pos.append(list(np.unique(l)))
+            l = serach_positive(row.name, df, max_s_interactions=1, max_relat
         
         df['sub_a_b_all'] = sub_pos
 
