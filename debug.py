@@ -85,38 +85,38 @@ if __name__ == '__main__':
   # job.run()
 
 
-  job = TripletTraining(
-    project="diginetica.config.diginetica_triplet",
-    recommender_module_class="model.TripletNet",
-    recommender_extra_params={
-      "n_factors": 100, 
-      "use_normalize": True, 
-      "negative_random": 0.05, 
-      "dropout": 0.2},
-    data_frames_preparation_extra_params={
-      "sample_days": 8, 
-      "column_stratification": "SessionIDX",
-      "max_itens_per_session": 20,
-      "min_itens_interactions": 2,
-      "max_relative_pos": 16,
-      "pos_max_deep": 0},
-    loss_function_params={
-      "triplet_loss": "bpr_triplet",
-      "swap": True,
-      "l2_reg": 1e-6,
-      "reduction": "mean",
-      "c": 100
-    },
-    optimizer_params={
-      "weight_decay": 1e-5
-    },
-    test_split_type= "time",
-    dataset_split_method="column",
-    metrics=["loss","triplet_dist", "triplet_acc"],
-    epochs=300,
-    save_item_embedding_tsv=True,
-    sample_size_eval=5000
-  )
+  # job = TripletTraining(
+  #   project="diginetica.config.diginetica_triplet",
+  #   recommender_module_class="model.TripletNet",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "use_normalize": True, 
+  #     "negative_random": 0.05, 
+  #     "dropout": 0.2},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 8, 
+  #     "column_stratification": "SessionIDX",
+  #     "max_itens_per_session": 20,
+  #     "min_itens_interactions": 2,
+  #     "max_relative_pos": 16,
+  #     "pos_max_deep": 0},
+  #   loss_function_params={
+  #     "triplet_loss": "bpr_triplet",
+  #     "swap": True,
+  #     "l2_reg": 1e-6,
+  #     "reduction": "mean",
+  #     "c": 100
+  #   },
+  #   optimizer_params={
+  #     "weight_decay": 1e-5
+  #   },
+  #   test_split_type= "time",
+  #   dataset_split_method="column",
+  #   metrics=["loss","triplet_dist", "triplet_acc"],
+  #   epochs=300,
+  #   save_item_embedding_tsv=True,
+  #   sample_size_eval=5000
+  # )
 
   # PYTHONPATH="."  luigi  \
   # --module train CoOccurrenceTraining  \
@@ -218,4 +218,30 @@ if __name__ == '__main__':
   #   run_evaluate=True,
   #   sample_size_eval=5000
   # )      
+  
+  job = SupervisedModelTraining(
+    project="diginetica.config.diginetica_rnn",
+    recommender_module_class="model.MLSASRec",
+    recommender_extra_params={
+      "n_factors": 100, 
+      "num_blocks": 2, 
+      "num_heads": 1, 
+      "dropout": 0.5,
+      "hist_size": 10,
+      "from_index_mapping": False,
+      "path_item_embedding": False, 
+      "freeze_embedding": False},
+    data_frames_preparation_extra_params={
+      "sample_days": 8, 
+      "history_window": 10, 
+      "column_stratification": "SessionID"},
+    test_split_type= "time",
+    dataset_split_method="column",
+    metrics=["loss"],
+    loss_function="ce", 
+    epochs=2,
+    run_evaluate=True,
+    sample_size_eval=5000
+  )
+
   job.run()  

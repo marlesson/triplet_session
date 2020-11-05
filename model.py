@@ -941,3 +941,114 @@ class TripletNet(RecommenderModule):
         
         #return arch_item_emb, positive_item_emb, negative_item_emb, dot_arch_pos
 
+class MLSASRec(RecommenderModule):
+    '''
+    https://github.com/pmixer/SASRec.pytorch/blob/30c43cf090d429480339ab18d43354b3e399bc29/model.py#L5
+    '''
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        path_item_embedding: str,
+        from_index_mapping: str,
+        freeze_embedding: bool,
+        n_factors: int,
+        num_blocks: int,
+        num_heads: int,
+        dropout: float,
+        hist_size: int,
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        self.hist_size = hist_size
+        self.n_factors = n_factors
+        
+        # TODO: loss += args.l2_emb for regularizing embedding vectors during training
+        # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
+        self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+
+        self.pos_emb = torch.nn.Embedding(hist_size, n_factors) # TO IMPROVE
+        self.emb_dropout = torch.nn.Dropout(p=dropout)
+
+        self.attention_layernorms = torch.nn.ModuleList() # to be Q for self-attention
+        self.attention_layers = torch.nn.ModuleList()
+        self.forward_layernorms = torch.nn.ModuleList()
+        self.forward_layers = torch.nn.ModuleList()
+
+        self.last_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+        
+        self.out = nn.Linear(self.n_factors, self._n_items)
+
+        for _ in range(num_blocks):
+            new_attn_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+            self.attention_layernorms.append(new_attn_layernorm)
+
+            new_attn_layer =  torch.nn.MultiheadAttention(n_factors,
+                                                            num_heads,
+                                                            dropout)
+            self.attention_layers.append(new_attn_layer)
+
+            new_fwd_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
+            self.forward_layernorms.append(new_fwd_layernorm)
+
+            new_fwd_layer = PointWiseFeedForward(n_factors, dropout)
+            self.forward_layers.append(new_fwd_layer)
+
+
+    def log2feats(self, log_seqs):
+        seqs = self.item_emb(log_seqs)
+        seqs *= self.item_emb.embedding_dim ** 0.5
+
+        positions = np.tile(np.array(range(self.hist_size)), [log_seqs.shape[0], 1])
+        
+        seqs += self.pos_emb(torch.LongTensor(positions).to(log_seqs.device))
+        seqs = self.emb_dropout(seqs)
+
+        timeline_mask = (log_seqs == 0)#.float()
+        seqs *= (~timeline_mask).float().unsqueeze(-1) # broadcast in last dim
+
+        tl = seqs.shape[1] # time dim len for enforce causality
+        attention_mask = (~torch.tril(torch.ones((tl, tl), dtype=torch.float)).bool()).float().to(log_seqs.device)
+
+        for i in range(len(self.attention_layers)):
+            seqs = torch.transpose(seqs, 0, 1)
+            Q = self.attention_layernorms[i](seqs)
+            mha_outputs, _ = self.attention_layers[i](Q, seqs, seqs, 
+                                            attn_mask=attention_mask)
+                                            # key_padding_mask=timeline_mask
+                                            # need_weights=False) this arg do not work?
+            seqs = Q + mha_outputs
+            seqs = torch.transpose(seqs, 0, 1)
+
+            seqs = self.forward_layernorms[i](seqs)
+            seqs = self.forward_layers[i](seqs)
+            seqs *=  (~timeline_mask).float().unsqueeze(-1)
+
+        log_feats = self.last_layernorm(seqs) # (U, T, C) -> (U, -1, C)
+        
+        
+
+        return log_feats
+
+    def forward(self, session_ids, item_ids, item_history_ids): # for training        
+        log_feats = self.log2feats(item_history_ids) # (B, H, E)
+        item_embs = self.item_emb(item_ids) # (B, E)
+        #logits    = (log_feats * item_embs).sum(-1)#.mean(1)
+
+        final_feat = log_feats[:, 0, :] # (B, E)  only use last QKV classifier, a waste
+
+        #logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1) # (B, B)
+        #logits     = (final_feat * item_embs).sum(-1) # (B)
+
+        output     = self.out(final_feat) #torch.softmax(self.out(final_feat), dim=1)
+        #self.sf  = nn.Softmax()
+        
+        return output
+
+    def recommendation_score(self, session_ids, item_ids, item_history_ids):
+        
+        scores = self.forward(session_ids, item_ids, item_history_ids)
+        scores = scores[torch.arange(scores.size(0)),item_ids]
+
+        return scores

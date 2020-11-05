@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from mars_gym.torch.data import NoAutoCollationDataLoader, FasterBatchSampler
 from torchbearer import Trial
 
+import gc
 import luigi
 import pandas as pd
 import numpy as np
@@ -41,7 +42,7 @@ from mars_gym.data.dataset import (
 
 # PYTHONPATH="." luigi --module mercado_livre.evaluation MLEvaluationTask \
 # --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
-# --model-task-id SupervisedModelTraining____mars_gym_model_b____e93c2b09b2 \
+# --model-task-id SupervisedModelTraining____mars_gym_model_b____b92d68b8b7 \
 # --local-scheduler
 class MLEvaluationTask(BaseEvaluationTask):
     model_task_class: str = luigi.Parameter(
@@ -124,17 +125,21 @@ class MLEvaluationTask(BaseEvaluationTask):
         
         generator = self.get_test_generator(df)
 
-        #df_item  = pd.DataFrame({"ItemID":list(range(self.model_training.n_items))})
-        #result = pd.merge(df.drop("ItemID", 1), df_item, on ='key').drop("key", 1) 
 
         # Gente Model
         model = self.model_training.get_trained_module()
         model.to(self.torch_device)
         model.eval()
+
         scores = []
+        rank_list = []
+        #with Pool(os.cpu_count()) as p:
+        #    list(tqdm(p.starmap(_get_rank_list, )))
+
+        reverse_index_mapping = self.model_training.reverse_index_mapping['ItemID']
+        reverse_index_mapping[1] = 0
 
         # Inference
-        #from IPython import embed; embed()
         with torch.no_grad():
             for i, (x, _) in tqdm(enumerate(generator), total=len(generator)):
                 
@@ -143,7 +148,17 @@ class MLEvaluationTask(BaseEvaluationTask):
 
                 scores_tensor: torch.Tensor  = model(*input_params)
                 scores_batch = scores_tensor.detach().cpu().numpy()
-                scores.extend(scores_batch)
+                #scores.extend(scores_batch)
+
+
+                for score in tqdm(scores_batch, total=len(scores_batch)):
+                    item_idx  = np.argsort(score)[::-1][:10]
+                    #from IPython import embed; embed()
+                    item_id   = [int(reverse_index_mapping[item]) for item in item_idx]
+                    rank_list.append(item_id)
+
+                gc.collect()
+        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), np.array(rank_list).astype(int), fmt='%i', delimiter=',') 
 
                 # scores_tensor: torch.Tensor  = model.recommendation_score(*input_params)
                 # scores_batch: List[float] = scores_tensor.cpu().numpy().reshape(-1).tolist()
@@ -178,16 +193,15 @@ class MLEvaluationTask(BaseEvaluationTask):
         # scores: List[float] = scores_tensor.cpu().numpy().reshape(-1).tolist()
         
 
-        rank_list = []
-        #with Pool(os.cpu_count()) as p:
-        #    list(tqdm(p.starmap(_get_rank_list, )))
+        # rank_list = []
+        # #with Pool(os.cpu_count()) as p:
+        # #    list(tqdm(p.starmap(_get_rank_list, )))
 
-        reverse_index_mapping = self.model_training.reverse_index_mapping['ItemID']
+        # reverse_index_mapping = self.model_training.reverse_index_mapping['ItemID']
 
-        for score in tqdm(scores, total=len(scores)):
-            item_idx  = np.argsort(score)[:10]
-            item_id   = [int(reverse_index_mapping[item]) for item in item_idx]
-            rank_list.append(item_id)
+        # for score in tqdm(scores, total=len(scores)):
+        #     item_idx  = np.argsort(score)[:10]
+        #     item_id   = [int(reverse_index_mapping[item]) for item in item_idx]
+        #     rank_list.append(item_id)
 
 
-        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), np.array(rank_list).astype(int), fmt='%i', delimiter=',') 
