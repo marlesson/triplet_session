@@ -25,6 +25,28 @@ from pyspark.sql.types import *
 from pyspark.sql import functions as F
 from pyspark.sql import Window
 from pyspark.sql.functions import explode, posexplode
+from torchnlp.encoders.text.static_tokenizer_encoder import StaticTokenizerEncoder
+import re
+from unidecode import unidecode
+
+from pyspark import SparkContext
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.functions import  collect_list, lit, sum, udf, col, count, abs, max, lag, unix_timestamp
+from pyspark.sql.functions import posexplode
+from pyspark.sql.types import IntegerType, StringType
+from pyspark.sql.window import Window
+from pyspark.sql.types import ArrayType, FloatType
+from pyspark.sql.functions import udf, struct
+from pyspark.ml.linalg import DenseVector
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import RegexTokenizer
+from pyspark.ml.feature import CountVectorizer as CountVectorizerSpark
+from pyspark.ml.linalg import Vectors
+from pyspark.sql.window import Window
+from pyspark.sql.functions import when
+from pyspark.ml.feature import QuantileDiscretizer
+
 from itertools import chain
 from datetime import datetime, timedelta
 from tqdm import tqdm
@@ -38,10 +60,12 @@ DATASET_DIR: str = os.path.join(OUTPUT_PATH, "mercado_livre", "dataset")
 
 BASE_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "train_dataset.jl")
 BASE_TEST_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "test_dataset.jl")
+BASE_METADATA_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "item_data.jl")
 
 ## AUX
 pad_history = F.udf(
-    lambda arr, size: list(reversed(([0] * (size - len(arr[:-1][:size])) + arr[:-1][:size]))), 
+    lambda arr, size: list(reversed(([0] * (size - len(arr[:-1][:size])) + arr[:-1])))[:size], 
+    #lambda arr, size: list((arr[:size] + [0] * (size - len(arr[:size])))), 
     ArrayType(IntegerType())
 )
 
@@ -109,6 +133,157 @@ class PreProcessSessionTestDataset(PreProcessSessionDataset):
 
 ################################## Supervised ######################################
 
+class TextDataProcess(BasePySparkTask):
+    def requires(self):
+        return PreProcessSessionDataset(), PreProcessSessionTestDataset()
+
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_dataset__processed.csv")),\
+            luigi.LocalTarget(os.path.join(DATASET_DIR, "session_test_dataset__processed.csv")),\
+            luigi.LocalTarget(os.path.join(DATASET_DIR, "item__processed.csv")),\
+            luigi.LocalTarget(os.path.join(DATASET_DIR,  "text_vocabulary.csv"))
+
+    def func_tokenizer(self, text):
+        # print(text)
+
+        text = str(text)
+
+        # # Remove acentuação
+        text = unidecode(text)
+
+        # # lowercase
+        text = text.lower()
+
+        # #remove tags
+        text = re.sub("<!--?.*?-->", "", text)
+
+        # # remove special characters and digits
+        text = re.sub("(\\d|\\W)+", " ", text)
+        text = re.sub('[^A-Za-z0-9]+', ' ', text)
+
+        # # punk
+        text = re.sub(r'[?|!|\'|#]', r'', text)
+        text = re.sub(r'[.|,|:|)|(|\|/]', r' ', text)
+
+        # Clean onde
+        tokens = [t.strip() for t in text.split() if len(t) > 1]
+
+        # remove stopwords
+        #stopwords = self.load_stopwords()
+        #tokens    = [t for t in tokens if t not in stopwords]
+
+        if len(tokens) == 0:
+            tokens.append("<pad>")
+        # print(tokens)
+        # print("")
+        # if len(tokens) < 2:
+        #    print(tokens)
+        return tokens
+
+    def add_more_information(self, df):
+        
+        # Add step
+        df = df.withColumn("step", lit(1))
+
+        w = (Window.partitionBy('session_id').orderBy('event_timestamp2')
+             .rangeBetween(Window.unboundedPreceding, 0))
+        df = df.withColumn('step', F.sum('step').over(w))
+
+        # Split event_info
+        df = df.withColumn("event_search",
+            when(df.event_type == "search", col("event_info")).
+            otherwise(""))
+
+        df = df.withColumn("event_view",
+            when(df.event_type == "view", col("event_info")).
+            otherwise(0))
+
+        # Add Time
+        w = Window.partitionBy('session_id').orderBy('event_timestamp2')
+        df = df.withColumn("previous_t", lag(df.event_timestamp2, 1).over(w))\
+                .withColumn("diff_event_timestamp2", (unix_timestamp(df.event_timestamp2) - unix_timestamp(col('previous_t')).cast("integer"))) \
+                .fillna(0, subset=['diff_event_timestamp2'])                    
+
+        return df
+
+    def main(self, sc: SparkContext, *args):
+        os.makedirs(DATASET_DIR, exist_ok=True)
+
+        spark = SparkSession(sc)
+        print("Load Data...")
+
+        # Load
+        spark    = SparkSession(sc)
+        df = spark.read.json(BASE_METADATA_FILE)
+        df_text = df.select(["item_id", "title"]).toPandas()
+
+        # Load train
+        df_train = spark.read.option("delimiter", ",").csv(self.input()[0].path, header=True, inferSchema=True)
+        df_train = df_train.withColumn("idx", F.monotonically_increasing_id())
+        df_train = self.add_more_information(df_train)
+
+        df_train_text  = df_train.select(["event_search", "idx"]).toPandas()
+
+        # Load train
+        df_test = spark.read.option("delimiter", ",").csv(self.input()[1].path, header=True, inferSchema=True)
+        df_test = df_test.withColumn("idx", F.monotonically_increasing_id())
+        df_test = self.add_more_information(df_test)
+
+        df_test_text  = df_test.select(["event_search", "idx"]).toPandas()
+
+
+
+        # vocabulario
+        vocab = ["<none>"]
+        df_text["title"] = df_text["title"].fillna("<none>")
+        vocab += df_text["title"].tolist() + df_train_text["event_search"].tolist() + df_test_text["event_search"].tolist()
+
+        # Tokenizer
+        tokenizer = StaticTokenizerEncoder(vocab, 
+            tokenize= self.func_tokenizer, min_occurrences=10, 
+            reserved_tokens=['<pad>', '<unk>'], padding_index=0)
+        df_vocabulary = pd.DataFrame(tokenizer.vocab, columns=['vocabulary'])
+        print(df_vocabulary)
+        print("Transform Interactions data...")
+
+        #Apply tokenizer 
+
+        ## Metadada
+        text_column = "title"
+        df_text[text_column] = tokenizer.batch_encode(df_text[text_column])[
+            0].cpu().detach().numpy().tolist()
+        df_text[text_column + '_max_words'] = len(df_text[text_column][0])
+
+        df_text = spark.createDataFrame(df_text)
+        df = df.drop(*["title"]).join(df_text, ['item_id'])
+
+        ## Train
+        text_column = "event_search"
+        df_train_text[text_column] = tokenizer.batch_encode(df_train_text[text_column])[
+            0].cpu().detach().numpy().tolist()
+        df_train_text[text_column + '_max_words'] = len(df_train_text[text_column][0])
+
+        df_train_text = spark.createDataFrame(df_train_text)
+        df_train = df_train.drop(*[text_column]).join(df_train_text, ['idx'])
+
+        ## Test
+        text_column = "event_search"
+        df_test_text[text_column] = tokenizer.batch_encode(df_test_text[text_column])[
+            0].cpu().detach().numpy().tolist()
+        df_test_text[text_column + '_max_words'] = len(df_test_text[text_column][0])
+
+        df_test_text = spark.createDataFrame(df_test_text)
+        df_test = df_test.drop(*[text_column]).join(df_test_text, ['idx'])
+
+        # Save
+        df_train.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[0].path, index=False)
+        df_test.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[1].path, index=False)
+        df.toPandas().to_csv(self.output()[2].path, index=False)
+        df_vocabulary.to_csv(self.output()[3].path)
+
+        return
+
 class SessionPrepareDataset(BasePySparkTask):
     sample_days: int = luigi.IntParameter(default=16)
     history_window: int = luigi.IntParameter(default=10)
@@ -124,10 +299,51 @@ class SessionPrepareDataset(BasePySparkTask):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "dataset_prepared_sample={}_win={}_list={}_min_i={}.csv"\
                     .format(self.sample_days, self.history_window, self.size_available_list, self.minimum_interactions),))
 
+
+    def add_more_information(self, df):
+        
+        # Add step
+        df = df.withColumn("step", lit(1))
+
+        w = (Window.partitionBy('SessionID').orderBy('Timestamp')
+             .rangeBetween(Window.unboundedPreceding, 0))
+        df = df.withColumn('step', F.sum('step').over(w))
+
+        # Add Time diff and cum
+        w = Window.partitionBy('SessionID').orderBy('Timestamp')
+        df = df.withColumn("previous_t", lag(df.Timestamp, 1).over(w))\
+                .withColumn("diff_Timestamp", (unix_timestamp(df.Timestamp) - unix_timestamp(col('previous_t')).cast("integer"))) \
+                .fillna(0, subset=['diff_Timestamp'])           
+        
+        df = df.withColumn('int_Timestamp', df.Timestamp.cast("integer"))
+
+        w = Window.partitionBy('SessionID').orderBy(col("Timestamp"))
+        df = df.withColumn('cum_Timestamp', F.sum('diff_Timestamp').over(w)).fillna(0, subset=['cum_Timestamp'])      
+
+        return df
+
     def add_history(self, df):
         
+        w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
+
+        # History Step
+        df = df.withColumn(
+            'StepHistory', F.collect_list('step').over(w)
+        )
+        df = df.withColumn('StepHistory', pad_history(df.StepHistory, lit(self.history_window)))
+
+
+        # History Time
+        df = df.withColumn(
+            'TimestampHistory', F.collect_list('int_Timestamp').over(w)
+        )
+        df = df.withColumn('TimestampHistory', pad_history(df.TimestampHistory, lit(self.history_window)))
+
+
+
         w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rangeBetween(Window.currentRow, 5)
 
+        # History Item
         df = df.withColumn(
             'ItemIDHistory', F.collect_list('ItemID').over(w)
         ).where(size(col("ItemIDHistory")) >= self.min_session_size)#\
@@ -180,7 +396,8 @@ class SessionPrepareDataset(BasePySparkTask):
             .withColumnRenamed("event_info", "ItemID")\
             .withColumn("ItemID", col("ItemID").cast("int"))\
             .withColumn("Timestamp", col("Timestamp").cast("timestamp"))\
-            .orderBy(col('Timestamp'), col('SessionID')).select("SessionID", "ItemID", "Timestamp", "event_type")
+            .orderBy(col('Timestamp'), col('SessionID'))\
+            .select("SessionID", "ItemID", "Timestamp", "event_type")#.limit(1000)
 
 
         if not self.no_filter_data:
@@ -188,12 +405,12 @@ class SessionPrepareDataset(BasePySparkTask):
             df = df.filter(df.event_type != "search")
 
             # Drop duplicate item in that same session
-            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type'])
+            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type']) #TODO  ajuda ou atrapalha?
             
             # Filter 
             df = self.filter(df)
 
-        
+        df = self.add_more_information(df)
         df = self.add_history(df)
         df = self.add_available_items(df)
         df = df.withColumn('visit',lit(1))
@@ -209,6 +426,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     size_available_list: int = luigi.IntParameter(default=100)
     days_test: int = luigi.IntParameter(default=1)
     index_mapping_path: str = luigi.Parameter(default=None)
+    filter_only_buy: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
         return SessionPrepareDataset(sample_days=self.sample_days, history_window=self.history_window, size_available_list=self.size_available_list)
@@ -235,14 +453,16 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         return df
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
-        
+        if self.filter_only_buy or data_key == 'TEST_GENERATOR': 
+            df = df[df['event_type'] == 'buy']
+
         return df
 
     def time_train_test_split(
         self, df: pd.DataFrame, test_size: float
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         df[self.timestamp_property] = pd.to_datetime(df[self.timestamp_property])
-
+        ss
         if self.timestamp_property:
             df = df.sort_values(self.timestamp_property)
         

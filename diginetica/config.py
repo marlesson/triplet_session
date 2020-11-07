@@ -83,3 +83,19 @@ diginetica_triplet = ProjectConfig(
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )  
 
+
+diginetica_transformer = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=dataset.InteractionsDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="",
+    other_input_columns=[
+        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+        Column("TimestampHistory", IOType.INT_ARRAY),
+    ],
+    output_column=Column("ItemID", IOType.INDEXABLE),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)

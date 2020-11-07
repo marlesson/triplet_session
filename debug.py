@@ -217,31 +217,93 @@ if __name__ == '__main__':
   #   epochs=2,
   #   run_evaluate=True,
   #   sample_size_eval=5000
-  # )      
+  # # )      
   
+  # job = SupervisedModelTraining(
+  #   project="diginetica.config.diginetica_rnn",
+  #   recommender_module_class="model.MLSASRec",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "num_blocks": 2, 
+  #     "num_heads": 1, 
+  #     "dropout": 0.5,
+  #     "hist_size": 10,
+  #     "from_index_mapping": False,
+  #     "path_item_embedding": False, 
+  #     "freeze_embedding": False},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 8, 
+  #     "history_window": 10, 
+  #     "column_stratification": "SessionID"},
+  #   test_split_type= "time",
+  #   dataset_split_method="column",
+  #   metrics=["loss"],
+  #   loss_function="ce", 
+  #   epochs=2,
+  #   run_evaluate=True,
+  #   sample_size_eval=5000
+  # )
+
+
+  # job = SupervisedModelTraining(
+  #   project="diginetica.config.diginetica_rnn",
+  #   recommender_module_class="model.MLCaser",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "p_L": 10, 
+  #     "p_d": 50, 
+  #     "p_nh": 16,
+  #     "p_nv": 4,
+  #     "dropout": 0.2, 
+  #     "hist_size": 10,
+  #     "from_index_mapping": False,
+  #     "path_item_embedding": False, 
+  #     "freeze_embedding": False},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 8, 
+  #     "history_window": 10, 
+  #     "column_stratification": "SessionID"},
+  #   test_split_type= "time",
+  #   dataset_split_method="column",
+  #   metrics=["loss"],
+  #   loss_function="bce", 
+  #   epochs=2,
+  #   run_evaluate=True,
+  #   sample_size_eval=5000
+  # )
+
+
+     
   job = SupervisedModelTraining(
-    project="diginetica.config.diginetica_rnn",
-    recommender_module_class="model.MLSASRec",
+    project="mercado_livre.config.mercado_livre_transformer",
+    recommender_module_class="model.MLTransformerModel",
     recommender_extra_params={
       "n_factors": 100, 
-      "num_blocks": 2, 
-      "num_heads": 1, 
-      "dropout": 0.5,
+      "n_hid": 100,
+      "n_head": 1,
+      "n_layers": 1,
+      "num_filters": 50,
+      "dropout": 0.2,
       "hist_size": 10,
       "from_index_mapping": False,
       "path_item_embedding": False, 
       "freeze_embedding": False},
     data_frames_preparation_extra_params={
-      "sample_days": 8, 
+      "sample_days": 30, 
       "history_window": 10, 
-      "column_stratification": "SessionID"},
-    test_split_type= "time",
+      "column_stratification": "SessionID",
+      "filter_only_buy": True},
+    test_size= 0.1,
+    val_size= 0.1,      
+    test_split_type= "random",
     dataset_split_method="column",
     metrics=["loss"],
-    loss_function="ce", 
     epochs=2,
+    batch_size=2,
+    loss_function="bce",
     run_evaluate=True,
     sample_size_eval=5000
-  )
+  )      
+  
 
-  job.run()  
+  job.run()
