@@ -123,7 +123,6 @@ class PreProcessSessionDataset(BasePySparkTask):
 
         df.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output().path, index=False)
 
-
 class PreProcessSessionTestDataset(PreProcessSessionDataset):
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_test_dataset.csv"))
@@ -132,6 +131,11 @@ class PreProcessSessionTestDataset(PreProcessSessionDataset):
         return BASE_TEST_DATASET_FILE
 
 ################################## Supervised ######################################
+def char_encode(text):
+    vocabulary = list("""abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")
+    return [vocabulary.index(c)+1 if c in vocabulary else 0 for c in unidecode(text).lower() ]
+
+udf_char_encode = F.udf(char_encode, ArrayType(IntegerType()))
 
 class TextDataProcess(BasePySparkTask):
     def requires(self):
@@ -184,11 +188,15 @@ class TextDataProcess(BasePySparkTask):
     def add_more_information(self, df):
         
         # Add step
-        df = df.withColumn("step", lit(1))
+        # df = df.withColumn("step", lit(1))
 
-        w = (Window.partitionBy('session_id').orderBy('event_timestamp2')
-             .rangeBetween(Window.unboundedPreceding, 0))
-        df = df.withColumn('step', F.sum('step').over(w))
+        # w = (Window.partitionBy('session_id').orderBy('event_timestamp2')
+        #      .rangeBetween(Window.unboundedPreceding, 0))
+        # df = df.withColumn('step', F.sum('step').over(w))
+
+        # add price
+
+
 
         # Split event_info
         df = df.withColumn("event_search",
@@ -200,10 +208,10 @@ class TextDataProcess(BasePySparkTask):
             otherwise(0))
 
         # Add Time
-        w = Window.partitionBy('session_id').orderBy('event_timestamp2')
-        df = df.withColumn("previous_t", lag(df.event_timestamp2, 1).over(w))\
-                .withColumn("diff_event_timestamp2", (unix_timestamp(df.event_timestamp2) - unix_timestamp(col('previous_t')).cast("integer"))) \
-                .fillna(0, subset=['diff_event_timestamp2'])                    
+        # w = Window.partitionBy('session_id').orderBy('event_timestamp2')
+        # df = df.withColumn("previous_t", lag(df.event_timestamp2, 1).over(w))\
+        #         .withColumn("diff_event_timestamp2", (unix_timestamp(df.event_timestamp2) - unix_timestamp(col('previous_t')).cast("integer"))) \
+        #         .fillna(0, subset=['diff_event_timestamp2'])                    
 
         return df
 
@@ -216,71 +224,75 @@ class TextDataProcess(BasePySparkTask):
         # Load
         spark    = SparkSession(sc)
         df = spark.read.json(BASE_METADATA_FILE)
-        df_text = df.select(["item_id", "title"]).toPandas()
+        #df_text = df.select(["item_id", "title"]).toPandas()
+        df = df.withColumn("price", col("price").cast("float"))
 
         # Load train
         df_train = spark.read.option("delimiter", ",").csv(self.input()[0].path, header=True, inferSchema=True)
         df_train = df_train.withColumn("idx", F.monotonically_increasing_id())
         df_train = self.add_more_information(df_train)
 
-        df_train_text  = df_train.select(["event_search", "idx"]).toPandas()
+        #df_train_text  = df_train.select(["event_search", "idx"]).toPandas()
 
         # Load train
         df_test = spark.read.option("delimiter", ",").csv(self.input()[1].path, header=True, inferSchema=True)
         df_test = df_test.withColumn("idx", F.monotonically_increasing_id())
         df_test = self.add_more_information(df_test)
 
-        df_test_text  = df_test.select(["event_search", "idx"]).toPandas()
-
-
+        #df_test_text  = df_test.select(["event_search", "idx"]).toPandas()
 
         # vocabulario
-        vocab = ["<none>"]
-        df_text["title"] = df_text["title"].fillna("<none>")
-        vocab += df_text["title"].tolist() + df_train_text["event_search"].tolist() + df_test_text["event_search"].tolist()
+        # vocab = ["<none>"]
+        # df_text["title"] = df_text["title"].fillna("<none>")
+        # vocab += df_text["title"].tolist() + df_train_text["event_search"].tolist() + df_test_text["event_search"].tolist()
 
         # Tokenizer
-        tokenizer = StaticTokenizerEncoder(vocab, 
-            tokenize= self.func_tokenizer, min_occurrences=10, 
-            reserved_tokens=['<pad>', '<unk>'], padding_index=0)
-        df_vocabulary = pd.DataFrame(tokenizer.vocab, columns=['vocabulary'])
-        print(df_vocabulary)
-        print("Transform Interactions data...")
+        # tokenizer = StaticTokenizerEncoder(vocab, 
+        #     tokenize= self.func_tokenizer, min_occurrences=10, 
+        #     reserved_tokens=['<pad>', '<unk>'], padding_index=0)
+        # df_vocabulary = pd.DataFrame(tokenizer.vocab, columns=['vocabulary'])
+        # print(df_vocabulary)
+        # print("Transform Interactions data...")
 
         #Apply tokenizer 
 
         ## Metadada
         text_column = "title"
-        df_text[text_column] = tokenizer.batch_encode(df_text[text_column])[
-            0].cpu().detach().numpy().tolist()
-        df_text[text_column + '_max_words'] = len(df_text[text_column][0])
+        df = df.withColumn(text_column, udf_char_encode(col(text_column)))
+        
+        # df_text[text_column] = tokenizer.batch_encode(df_text[text_column])[
+        #     0].cpu().detach().numpy().tolist()
+        # df_text[text_column + '_max_words'] = len(df_text[text_column][0])
 
-        df_text = spark.createDataFrame(df_text)
-        df = df.drop(*["title"]).join(df_text, ['item_id'])
+        # df_text = spark.createDataFrame(df_text)
+        # df = df.drop(*["title"]).join(df_text, ['item_id'])
 
         ## Train
         text_column = "event_search"
-        df_train_text[text_column] = tokenizer.batch_encode(df_train_text[text_column])[
-            0].cpu().detach().numpy().tolist()
-        df_train_text[text_column + '_max_words'] = len(df_train_text[text_column][0])
+        df_train = df_train.withColumn(text_column, udf_char_encode(col(text_column)))        
+        # df_train_text[text_column] = tokenizer.batch_encode(df_train_text[text_column])[
+        #     0].cpu().detach().numpy().tolist()
+        # df_train_text[text_column + '_max_words'] = len(df_train_text[text_column][0])
 
-        df_train_text = spark.createDataFrame(df_train_text)
-        df_train = df_train.drop(*[text_column]).join(df_train_text, ['idx'])
+        # df_train_text = spark.createDataFrame(df_train_text)
+        # df_train = df_train.drop(*[text_column]).join(df_train_text, ['idx'])
 
         ## Test
         text_column = "event_search"
-        df_test_text[text_column] = tokenizer.batch_encode(df_test_text[text_column])[
-            0].cpu().detach().numpy().tolist()
-        df_test_text[text_column + '_max_words'] = len(df_test_text[text_column][0])
+        df_test = df_test.withColumn(text_column, udf_char_encode(col(text_column)))                
+        # text_column = "event_search"
+        # df_test_text[text_column] = tokenizer.batch_encode(df_test_text[text_column])[
+        #     0].cpu().detach().numpy().tolist()
+        # df_test_text[text_column + '_max_words'] = len(df_test_text[text_column][0])
 
-        df_test_text = spark.createDataFrame(df_test_text)
-        df_test = df_test.drop(*[text_column]).join(df_test_text, ['idx'])
+        # df_test_text = spark.createDataFrame(df_test_text)
+        # df_test = df_test.drop(*[text_column]).join(df_test_text, ['idx'])
 
         # Save
         df_train.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[0].path, index=False)
         df_test.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[1].path, index=False)
         df.toPandas().to_csv(self.output()[2].path, index=False)
-        df_vocabulary.to_csv(self.output()[3].path)
+        #df_vocabulary.to_csv(self.output()[3].path)
 
         return
 
@@ -302,6 +314,11 @@ class SessionPrepareDataset(BasePySparkTask):
 
     def add_more_information(self, df):
         
+        # Add Last
+        w = Window.partitionBy('SessionID').orderBy('Timestamp')
+        df = df.withColumn("last_ItemID", lag(df.ItemID, 1).over(w))\
+
+
         # Add step
         df = df.withColumn("step", lit(1))
 
@@ -338,7 +355,6 @@ class SessionPrepareDataset(BasePySparkTask):
             'TimestampHistory', F.collect_list('int_Timestamp').over(w)
         )
         df = df.withColumn('TimestampHistory', pad_history(df.TimestampHistory, lit(self.history_window)))
-
 
 
         w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rangeBetween(Window.currentRow, 5)
@@ -397,7 +413,7 @@ class SessionPrepareDataset(BasePySparkTask):
             .withColumn("ItemID", col("ItemID").cast("int"))\
             .withColumn("Timestamp", col("Timestamp").cast("timestamp"))\
             .orderBy(col('Timestamp'), col('SessionID'))\
-            .select("SessionID", "ItemID", "Timestamp", "event_type")#.limit(1000)
+            .select("SessionID", "ItemID", "Timestamp", "event_type").limit(1000)
 
 
         if not self.no_filter_data:
@@ -412,7 +428,7 @@ class SessionPrepareDataset(BasePySparkTask):
 
         df = self.add_more_information(df)
         df = self.add_history(df)
-        df = self.add_available_items(df)
+        #df = self.add_available_items(df)
         df = df.withColumn('visit',lit(1))
         
         if self.no_filter_data:

@@ -1169,15 +1169,6 @@ class MLTransformerModel(RecommenderModule):
 
         scores      = torch.matmul(pred_emb, item_embs.permute(1, 0)) # (B, dim)
 
-        # join    = torch.cat([last_item, self.flatten(hist_conv)], 1)
-        # pred_emb     = self.dense2(join)
-
-        # item_embs   = self.normalize(
-        #                 self.item_embeddings(torch.arange(self._n_items).to(hist_emb.device).long())) # (Dim, E)
-
-        # scores      = torch.matmul(pred_emb, item_embs.permute(1, 0)) # (B, dim)
-
-
         return scores
 
     def recommendation_score(self, session_ids, item_ids, item_history_ids, time_diff_history):
