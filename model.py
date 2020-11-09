@@ -1046,7 +1046,6 @@ class MLNARMModel(RecommenderModule):
 
     def init_hidden(self, batch_size):
         return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
-        
 
 class MLTransformerModel(RecommenderModule):
     def __init__(
@@ -1067,33 +1066,39 @@ class MLTransformerModel(RecommenderModule):
         super().__init__(project_config, index_mapping)
         self.path_item_embedding = path_item_embedding
         
-        filter_sizes: List[int] = [1, 3, 5] #1 3 5
+        filter_sizes: List[int] = [3, 4, 5]# [1, 3, 5] #1 3 5
+        n_time_dim = 50
 
-        self.item_embeddings = load_embedding(self._n_items, n_factors, path_item_embedding, 
+        self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
                                                 from_index_mapping, index_mapping, freeze_embedding)
-
-        self.pos_encoder    = PositionalEncoding(n_factors, dropout)
-        encoder_layers      =  nn.TransformerEncoderLayer(n_factors, n_head, n_hid, dropout)
-        self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, n_layers)
-
-        conv_size_out = len(filter_sizes) * num_filters
-
-        self.convs1 = nn.ModuleList(
-            [nn.Conv2d(1, num_filters, (K, n_factors)) for K in filter_sizes])
+        self.category_emb = nn.Embedding(len(self._index_mapping["category_id_history"]), n_factors)
+        #self.domain_emb   = nn.Embedding(len(self._index_mapping["domain_id_history"]), n_factors)
 
         self.emb_drop = nn.Dropout(p=dropout)
-        #self.emb_drop = EmbeddingDropout(dropout)
+        self.dropout  = nn.Dropout(p=dropout)
 
+        n_factors_2 = n_factors * 2
+
+        self.pos_encoder    = PositionalEncoding(n_factors_2, dropout)
+        encoder_layers      =  nn.TransformerEncoderLayer(n_factors_2, n_head, n_hid, dropout)
+        self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, n_layers)
+
+        self.time_emb  = TimeEmbedding(n_time_dim, n_factors_2)
+
+        self.convs1 = nn.ModuleList(
+            [nn.Conv2d(1, num_filters, (K, n_factors_2)) for K in filter_sizes])
+
+        self.convs2 = nn.ModuleList(
+            [nn.Conv1d(1, num_filters, K*n_factors_2, stride=n_factors_2) for K in filter_sizes])
+
+        conv_size_out = len(filter_sizes) * num_filters
+        #conv_size_out = n_factors_2*hist_size
         self.dense = nn.Sequential(
-            nn.Linear(conv_size_out + n_factors, n_factors)
+            nn.Linear(conv_size_out + n_factors, conv_size_out + n_factors),
+            nn.ReLU(),
+            nn.Linear(conv_size_out + n_factors, n_factors),
         )
-        self.time_emb = TimeEmbedding(hist_size, n_factors)
-
-        # self.dense2 = nn.Sequential(
-        #     nn.Linear(n_factors + n_factors * hist_size, n_factors),
-        #     nn.ReLU(),
-        #     nn.Linear(n_factors, n_factors)
-        # )
+        self.b = nn.Linear(n_factors, n_factors)
 
         self.use_normalize = True
         self.weight_init = lecun_normal_init
@@ -1122,6 +1127,13 @@ class MLTransformerModel(RecommenderModule):
 
         return x
 
+    def conv_block2(self, x):
+        x = x.view(x.size(0), 1, -1)
+        x = [F.relu(conv(x)) for conv in self.convs2]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+
+        return x
     def flatten(self, input):
         return input.view(input.size(0), -1)
 
@@ -1135,12 +1147,31 @@ class MLTransformerModel(RecommenderModule):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
-    def forward(self, session_ids, item_ids, item_history_ids, time_diff_history):
+    def forward(self, session_ids, item_ids, 
+                        item_history_ids, 
+                        time_diff_history, 
+                        category_id_history,
+                        price_history):
         # Item History embs
-        hist_emb    =   self.emb_drop(
-                            self.normalize(self.item_embeddings(item_history_ids), 2)
-                        )#[0] # (B, H, E)
+        item_hist_emb   =   self.emb_drop(
+                                self.normalize(self.item_emb(item_history_ids), 2)
+                            )#[0] # (B, H, E)
         
+        cat_hist_emb    =   self.emb_drop(
+                                self.normalize(self.category_emb(category_id_history), 2)
+                            )#[0] # (B, H, E)
+
+        # dom_hist_emb    =   self.emb_drop(
+        #                         self.normalize(self.domain_emb(domain_id_history), 2)
+        #                     )#[0] # (B, H, E)
+
+
+        # join hist features
+        hist_emb = torch.cat([item_hist_emb, 
+                              cat_hist_emb], dim=2)
+# , 
+#                               price_history.unsqueeze(2).float()
+
         # Time Emb        
         time_emb    = self.time_emb(time_diff_history.float().unsqueeze(2)) # (B, H, E)
 
@@ -1148,32 +1179,35 @@ class MLTransformerModel(RecommenderModule):
         mask_hist   = (item_history_ids != 0).to(item_history_ids.device).float()
         mask_hist   = mask_hist.unsqueeze(1).repeat((1,hist_emb.size(2),1)).permute(0,2,1)
 
-        #hist_emb    = hist_emb + time_emb
-
         # Create transform mask
-        mask        = self.src_mask(len(item_history_ids)).to(item_history_ids.device)
-        src         = self.pos_encoder(hist_emb)
+        mask          = self.src_mask(len(item_history_ids)).to(item_history_ids.device)
+        src           = self.pos_encoder(hist_emb*mask_hist)
         att_hist_emb  = self.transformer_encoder(src, mask) # (B, H, E)
         
-        last_item   = hist_emb[:,0]
+        # Add time emb
+        last_item   = item_hist_emb[:,0]
         hist_conv   = (att_hist_emb + time_emb)*mask_hist/2
         
-        conv_hist   = self.conv_block(hist_conv) # (B, C)
-
+        conv_hist   = self.conv_block2(hist_conv) # (B, C)
+        #conv_hist   = self.flatten(hist_conv)
         join        = torch.cat([last_item, conv_hist], 1)
 
         pred_emb    = self.dense(join) # (B, E)
+        pred_emb    = self.dropout(pred_emb)
+        # Predict
 
-        item_embs   = self.normalize(
-                        self.item_embeddings(torch.arange(self._n_items).to(hist_emb.device).long())) # (Dim, E)
-
-        scores      = torch.matmul(pred_emb, item_embs.permute(1, 0)) # (B, dim)
+        item_embs   = self.item_emb(torch.arange(self._n_items).to(item_history_ids.device).long()) # (Dim, E)
+        scores      = torch.matmul(pred_emb, self.b(item_embs).permute(1, 0)) # (B, dim)
 
         return scores
 
-    def recommendation_score(self, session_ids, item_ids, item_history_ids, time_diff_history):
+    def recommendation_score(self, session_ids, item_ids, 
+                                    item_history_ids, 
+                                    time_diff_history, 
+                                    category_id_history,
+                                    price_history):
         
-        scores = self.forward(session_ids, item_ids, item_history_ids, time_diff_history)
+        scores = self.forward(session_ids, item_ids, item_history_ids, time_diff_history, category_id_history, price_history)
         scores = scores[torch.arange(scores.size(0)),item_ids]
 
         return scores

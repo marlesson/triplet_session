@@ -14,12 +14,13 @@ from mars_gym.data.dataset import (
 import random
 from typing import Tuple, List, Union, Callable, Optional, Set, Dict, Any
 from mars_gym.meta_config import *
+from pyspark.ml.feature import StandardScaler
 
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.functions import collect_set, collect_list, lit, sum, udf, concat_ws, col, count, abs, date_format, \
-    from_utc_timestamp, expr, min, max
+    from_utc_timestamp, expr, min, max, mean, stddev
 from pyspark.sql.functions import col, udf, size
 from pyspark.sql.types import *
 from pyspark.sql import functions as F
@@ -63,11 +64,22 @@ BASE_TEST_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "merca
 BASE_METADATA_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "item_data.jl")
 
 ## AUX
-pad_history = F.udf(
-    lambda arr, size: list(reversed(([0] * (size - len(arr[:-1][:size])) + arr[:-1])))[:size], 
-    #lambda arr, size: list((arr[:size] + [0] * (size - len(arr[:size])))), 
-    ArrayType(IntegerType())
-)
+# pad_history = F.udf(
+#     lambda arr, size: list(reversed(([0] * (size - len(arr[:-1][:size])) + arr[:-1])))[:size], 
+#     #lambda arr, size: list((arr[:size] + [0] * (size - len(arr[:size])))), 
+#     ArrayType(IntegerType())
+# )
+def char_encode(text):
+    vocabulary = list("""abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")
+    return [vocabulary.index(c)+1 if c in vocabulary else 0 for c in unidecode(text).lower() ]
+
+udf_char_encode = F.udf(char_encode, ArrayType(IntegerType()))
+
+def pad_history(type):
+    def _pad_history(arr, size, pad=0):
+        return list(reversed(([pad] * (size - len(arr[:-1][:size])) + arr[:-1])))[:size]
+    return udf(_pad_history, ArrayType(type))
+
 
 def sample_items(item, item_list, size_available_list):
     return random.sample(item_list, size_available_list - 1) + [item]
@@ -98,10 +110,10 @@ class PreProcessSessionDataset(BasePySparkTask):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
         spark    = SparkSession(sc)
-        df = spark.read.json(self.get_path_dataset())
+        df = spark.read.json(self.get_path_dataset())#.sample(fraction=0.01, seed=42)
 
         if not 'item_bought' in df.columns:
-            df = df.withColumn('item_bought', lit(0))
+            df = df.withColumn('item_bought', lit(-1))
 
         df = df.withColumn("session_id", F.monotonically_increasing_id())
 
@@ -111,17 +123,19 @@ class PreProcessSessionDataset(BasePySparkTask):
                 .withColumn('event_timestamp', col("event").getItem("event_timestamp"))\
                 .withColumn('event_type', col("event").getItem("event_type"))
         
+        df = df.withColumn('event_timestamp', parse_date(col('event_timestamp')))
+
         df_view = df.select("session_id", "event_timestamp", "event_info", "event_type")
 
         df_buy  = df.groupBy("session_id").agg(max(df.event_timestamp).alias("event_timestamp"), 
                                             max(df.item_bought).alias("event_info"))
         df_buy  = df_buy.withColumn('event_type', lit("buy"))
-        df_buy  = df_buy.withColumn('event_timestamp', F.date_add(df_buy['event_timestamp'], 1))
+        df_buy  = df_buy.withColumn('event_timestamp', df_buy.event_timestamp + F.expr('INTERVAL 30 seconds'))
+        #df_buy  = df_buy.withColumn('event_timestamp', F.date_add(df_buy['event_timestamp'], 1))
 
         df = df_view.union(df_buy)
-        df = df.withColumn('event_timestamp2', parse_date(col('event_timestamp')))
 
-        df.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output().path, index=False)
+        df.orderBy(col('event_timestamp')).toPandas().to_csv(self.output().path, index=False)
 
 class PreProcessSessionTestDataset(PreProcessSessionDataset):
     def output(self):
@@ -131,11 +145,6 @@ class PreProcessSessionTestDataset(PreProcessSessionDataset):
         return BASE_TEST_DATASET_FILE
 
 ################################## Supervised ######################################
-def char_encode(text):
-    vocabulary = list("""abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")
-    return [vocabulary.index(c)+1 if c in vocabulary else 0 for c in unidecode(text).lower() ]
-
-udf_char_encode = F.udf(char_encode, ArrayType(IntegerType()))
 
 class TextDataProcess(BasePySparkTask):
     def requires(self):
@@ -145,8 +154,7 @@ class TextDataProcess(BasePySparkTask):
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_dataset__processed.csv")),\
             luigi.LocalTarget(os.path.join(DATASET_DIR, "session_test_dataset__processed.csv")),\
-            luigi.LocalTarget(os.path.join(DATASET_DIR, "item__processed.csv")),\
-            luigi.LocalTarget(os.path.join(DATASET_DIR,  "text_vocabulary.csv"))
+            luigi.LocalTarget(os.path.join(DATASET_DIR, "item__processed.csv"))
 
     def func_tokenizer(self, text):
         # print(text)
@@ -190,13 +198,11 @@ class TextDataProcess(BasePySparkTask):
         # Add step
         # df = df.withColumn("step", lit(1))
 
-        # w = (Window.partitionBy('session_id').orderBy('event_timestamp2')
+        # w = (Window.partitionBy('session_id').orderBy('event_timestamp')
         #      .rangeBetween(Window.unboundedPreceding, 0))
         # df = df.withColumn('step', F.sum('step').over(w))
 
         # add price
-
-
 
         # Split event_info
         df = df.withColumn("event_search",
@@ -205,13 +211,14 @@ class TextDataProcess(BasePySparkTask):
 
         df = df.withColumn("event_view",
             when(df.event_type == "view", col("event_info")).
-            otherwise(0))
+            when(df.event_type == "buy", col("event_info")).            
+            otherwise(-1))
 
         # Add Time
-        # w = Window.partitionBy('session_id').orderBy('event_timestamp2')
-        # df = df.withColumn("previous_t", lag(df.event_timestamp2, 1).over(w))\
-        #         .withColumn("diff_event_timestamp2", (unix_timestamp(df.event_timestamp2) - unix_timestamp(col('previous_t')).cast("integer"))) \
-        #         .fillna(0, subset=['diff_event_timestamp2'])                    
+        # w = Window.partitionBy('session_id').orderBy('event_timestamp')
+        # df = df.withColumn("previous_t", lag(df.event_timestamp, 1).over(w))\
+        #         .withColumn("diff_event_timestamp", (unix_timestamp(df.event_timestamp) - unix_timestamp(col('previous_t')).cast("integer"))) \
+        #         .fillna(0, subset=['diff_event_timestamp'])                    
 
         return df
 
@@ -289,8 +296,8 @@ class TextDataProcess(BasePySparkTask):
         # df_test = df_test.drop(*[text_column]).join(df_test_text, ['idx'])
 
         # Save
-        df_train.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[0].path, index=False)
-        df_test.orderBy(col('event_timestamp2')).toPandas().to_csv(self.output()[1].path, index=False)
+        df_train.orderBy(col('event_timestamp')).toPandas().to_csv(self.output()[0].path, index=False)
+        df_test.orderBy(col('event_timestamp')).toPandas().to_csv(self.output()[1].path, index=False)
         df.toPandas().to_csv(self.output()[2].path, index=False)
         #df_vocabulary.to_csv(self.output()[3].path)
 
@@ -305,7 +312,7 @@ class SessionPrepareDataset(BasePySparkTask):
     no_filter_data: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
-        return PreProcessSessionDataset()
+        return TextDataProcess()
 
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "dataset_prepared_sample={}_win={}_list={}_min_i={}.csv"\
@@ -313,58 +320,102 @@ class SessionPrepareDataset(BasePySparkTask):
 
 
     def add_more_information(self, df):
-        
-        # Add Last
+        # Window Metrics
         w = Window.partitionBy('SessionID').orderBy('Timestamp')
-        df = df.withColumn("last_ItemID", lag(df.ItemID, 1).over(w))\
 
+        # Add Last Item
+        
+        df = df.withColumn("last_ItemID", lag(df.ItemID, 1).over(w).cast("int"))\
 
         # Add step
         df = df.withColumn("step", lit(1))
 
-        w = (Window.partitionBy('SessionID').orderBy('Timestamp')
-             .rangeBetween(Window.unboundedPreceding, 0))
         df = df.withColumn('step', F.sum('step').over(w))
 
         # Add Time diff and cum
-        w = Window.partitionBy('SessionID').orderBy('Timestamp')
+        # https://medium.com/expedia-group-tech/deep-dive-into-apache-spark-datetime-functions-b66de737950a
         df = df.withColumn("previous_t", lag(df.Timestamp, 1).over(w))\
-                .withColumn("diff_Timestamp", (unix_timestamp(df.Timestamp) - unix_timestamp(col('previous_t')).cast("integer"))) \
+                .withColumn("diff_Timestamp", F.floor((unix_timestamp(df.Timestamp) - unix_timestamp(col('previous_t')).cast("int"))/lit(60)) ) \
                 .fillna(0, subset=['diff_Timestamp'])           
         
-        df = df.withColumn('int_Timestamp', df.Timestamp.cast("integer"))
-
-        w = Window.partitionBy('SessionID').orderBy(col("Timestamp"))
+        # 1546308000 = '2019-01-01 00:00:00'
+        df = df.withColumn('int_Timestamp', F.floor((df.Timestamp.cast("int")-lit(1546308000))/lit(60)) )
         df = df.withColumn('cum_Timestamp', F.sum('diff_Timestamp').over(w)).fillna(0, subset=['cum_Timestamp'])      
+
+        # Add Scaler Price
+        summary =  df.select([mean('price').alias('mu'), stddev('price').alias('sigma')])\
+            .collect().pop()
+        df = df.withColumn('price_norm', (df['price']-summary.mu)/summary.sigma)
+
+
+        # Window Metrics Price
+        w = Window.partitionBy('SessionID').orderBy('Timestamp').rowsBetween(Window.unboundedPreceding, -1)
+        df = df.withColumn('min_price_norm', F.min('price_norm').over(w))\
+            .withColumn('max_price_norm', F.max('price_norm').over(w))\
+            .withColumn('mean_price_norm', F.mean('price_norm').over(w))
+
+
+        # Add default target
+        df = df.withColumn('visit',lit(1))
 
         return df
 
     def add_history(self, df):
+        int_pad_history = pad_history(IntegerType())
+        str_pad_history = pad_history(StringType())
+        float_pad_history = pad_history(FloatType())
         
         w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
 
         # History Step
-        df = df.withColumn(
-            'StepHistory', F.collect_list('step').over(w)
-        )
-        df = df.withColumn('StepHistory', pad_history(df.StepHistory, lit(self.history_window)))
 
+        df = df.withColumn(
+            'step_history', F.collect_list('step').over(w)
+        )
+        df = df.withColumn('step_history', int_pad_history(df.step_history, lit(self.history_window)))
 
         # History Time
         df = df.withColumn(
-            'TimestampHistory', F.collect_list('int_Timestamp').over(w)
+            'timestamp_history', F.collect_list('int_Timestamp').over(w)
         )
-        df = df.withColumn('TimestampHistory', pad_history(df.TimestampHistory, lit(self.history_window)))
+        df = df.withColumn('timestamp_history', int_pad_history(df.timestamp_history, lit(self.history_window)))
 
+        # event_type
+        df = df.withColumn(
+            'event_type_history', F.collect_list('event_type').over(w)
+        )
+        df = df.withColumn('event_type_history', str_pad_history(df.event_type_history, lit(self.history_window)))
 
-        w = Window.partitionBy('SessionID').orderBy('Timestamp')#.rangeBetween(Window.currentRow, 5)
+        # category_id
+        df = df.withColumn(
+            'category_id_history', F.collect_list('category_id').over(w)
+        )
+        df = df.withColumn('category_id_history', str_pad_history(df.category_id_history, lit(self.history_window)))
+
+        # condition
+        df = df.withColumn(
+            'condition_id_history', F.collect_list('condition').over(w)
+        )
+        df = df.withColumn('condition_id_history', str_pad_history(df.condition_id_history, lit(self.history_window)))
+
+        # domain_id
+        df = df.withColumn(
+            'domain_id_history', F.collect_list('domain_id').over(w)
+        )
+        df = df.withColumn('domain_id_history', str_pad_history(df.domain_id_history, lit(self.history_window)))
+
+        # price
+        df = df.withColumn(
+            'price_history', F.collect_list('price_norm').over(w)
+        )
+        df = df.withColumn('price_history', float_pad_history(df.price_history, lit(self.history_window), lit(0.0)))
 
         # History Item
         df = df.withColumn(
-            'ItemIDHistory', F.collect_list('ItemID').over(w)
-        ).where(size(col("ItemIDHistory")) >= self.min_session_size)#\
+            'ItemID_history', F.collect_list('ItemID').over(w)
+        ).where(size(col("ItemID_history")) >= self.min_session_size)#\
 
-        df = df.withColumn('ItemIDHistory', pad_history(df.ItemIDHistory, lit(self.history_window)))
+        df = df.withColumn('ItemID_history', int_pad_history(df.ItemID_history, lit(self.history_window)))
 
         return df
 
@@ -372,9 +423,7 @@ class SessionPrepareDataset(BasePySparkTask):
         # filter date
         max_timestamp = df.select(max(col('Timestamp'))).collect()[0]['max(Timestamp)']
         init_timestamp = max_timestamp - timedelta(days = self.sample_days)
-        print("filter date", df.count())
         df         = df.filter(col('Timestamp') >= init_timestamp).cache()
-        print("filter date", df.count())
         print(init_timestamp, max_timestamp)
 
         # Filter minin interactions
@@ -387,13 +436,11 @@ class SessionPrepareDataset(BasePySparkTask):
         df_session    = df_session.filter(col('count') >= self.min_session_size)
         print("Filter session size", df_session.count())
 
-        print(df.show(50))
-
         df = df \
             .join(df_item, "ItemID", how="inner") \
             .join(df_session, "SessionID", how="inner")
 
-        return df
+        return df.cache()
 
     def add_available_items(self, df):
         all_items = list(df.select("ItemID").dropDuplicates().toPandas()["ItemID"])
@@ -402,37 +449,69 @@ class SessionPrepareDataset(BasePySparkTask):
 
         return df
 
+    def fillna(self, df):
+        # fill
+        df = df.fillna("-1", subset=['category_id', 'condition', "domain_id", "product_id", "item_id"])\
+                .fillna("[]", subset=['title'])\
+                .fillna(0.0, subset=['price'])      
+
+
+        return df
+
+    def input_path(self):
+        return self.input()[0].path
+
     def main(self, sc: SparkContext, *args):
         os.makedirs(DATASET_DIR, exist_ok=True)
 
         spark    = SparkSession(sc)
-        df = spark.read.option("delimiter", ",").csv(self.input().path, header=True, inferSchema=True)
+
+        # Item Metadada
+        df_item  = spark.read.option("delimiter", ",").csv(self.input()[2].path, header=True, inferSchema=True)\
+                    .fillna("", subset=['category_id', 'condition', "domain_id", "product_id"])\
+                    .fillna(0, subset=['price'])      
+
+        # Session
+        df = spark.read.option("delimiter", ",").csv(self.input_path(), header=True, inferSchema=True)
         df = df.withColumnRenamed("session_id", "SessionID")\
-            .withColumnRenamed("event_timestamp2", "Timestamp")\
-            .withColumnRenamed("event_info", "ItemID")\
+            .withColumnRenamed("event_timestamp", "Timestamp")\
+            .withColumnRenamed("event_view", "ItemID")\
             .withColumn("ItemID", col("ItemID").cast("int"))\
             .withColumn("Timestamp", col("Timestamp").cast("timestamp"))\
             .orderBy(col('Timestamp'), col('SessionID'))\
-            .select("SessionID", "ItemID", "Timestamp", "event_type").limit(1000)
+            .select("SessionID", "ItemID", "Timestamp", 
+                    "event_type", "event_search")#.limit(1000)
 
 
         if not self.no_filter_data:
             # Remove Search event
-            df = df.filter(df.event_type != "search")
+            #df = df.filter(df.event_type != "search")
 
             # Drop duplicate item in that same session
             df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type']) #TODO  ajuda ou atrapalha?
             
             # Filter 
             df = self.filter(df)
-
-        df = self.add_more_information(df)
-        df = self.add_history(df)
-        #df = self.add_available_items(df)
-        df = df.withColumn('visit',lit(1))
         
+        # Join session with item metadada
+        df = df.join(df_item, df.ItemID == df_item.item_id, how="left")\
+        
+        # Fillna
+        df = self.fillna(df)
+
+        # Add more information
+        df = self.add_more_information(df)
+        
+        # add lag variable
+        df = self.add_history(df)
+
+        #df = self.add_available_items(df)
+
+        # cast
+        df = df.withColumn("last_ItemID", df.last_ItemID.cast("int"))
+
         if self.no_filter_data:
-            df = df.filter(df.ItemID == 0)
+            df = df.filter(df.ItemID == -1)
 
         df.orderBy(col("SessionID")).toPandas().to_csv(self.output().path, index=False)
 
@@ -494,8 +573,11 @@ class SessionPrepareTestDataset(SessionPrepareDataset):
     min_session_size: int = luigi.IntParameter(default=0)
     no_filter_data: bool = luigi.BoolParameter(default=True)
 
+    def input_path(self):
+        return self.input()[1].path
+
     def requires(self):
-        return PreProcessSessionTestDataset()
+        return TextDataProcess()
 
 #################################  Triplet ##############################
 

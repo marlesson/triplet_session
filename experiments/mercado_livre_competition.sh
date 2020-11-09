@@ -327,8 +327,56 @@ mars-gym run supervised \
 #  'ndcg_at_50': 0.5632105667438765,
 #  'precision_at_1': 0.37599575146043546}
 
+mars-gym run supervised \
+--project mercado_livre.config.mercado_livre_transformer \
+--recommender-module-class model.MLTransformerModel \
+--recommender-extra-params '{
+  "n_factors": 100, 
+  "n_hid": 50,
+  "n_head": 4,
+  "n_layers": 1,
+  "num_filters": 100,
+  "dropout": 0.2, 
+  "hist_size": 30, 
+  "from_index_mapping": false,
+  "path_item_embedding": false, 
+  "freeze_embedding": false}' \
+--data-frames-preparation-extra-params '{
+  "sample_days": 30, 
+  "history_window": 30, 
+  "column_stratification": "SessionID",
+  "filter_only_buy": true}' \
+--test-size 0.1 \
+--val-size 0.1 \
+--early-stopping-min-delta 0.001 \
+--optimizer-params '{"weight_decay": 1e-6}' \
+--optimizer radam \
+--test-split-type random \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 10  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 1000 \
+--run-evaluate  \
+--run-evaluate-extra-params " " \
+--sample-size-eval 2000 --obs "mask"
 
-#SupervisedModelTraining____mars_gym_model_b____c0474b920f
+# {'count': 1946,
+#  'coverage_at_20': 0.44880000000000003,
+#  'coverage_at_5': 0.1429,
+#  'mean_average_precision': 0.40979347113736136,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____8451643eb8',
+#  'mrr_at_10': 0.39512002642783733,
+#  'mrr_at_5': 0.3835817060637205,
+#  'ndcg_at_10': 0.46113793152062266,
+#  'ndcg_at_15': 0.47512378125745064,
+#  'ndcg_at_20': 0.4875703532785683,
+#  'ndcg_at_5': 0.43158280642596586,
+#  'ndcg_at_50': 0.5228131177590638,
+#  'precision_at_1': 0.33504624871531347}
+
 
 
 ########################################
