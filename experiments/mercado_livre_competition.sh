@@ -8,7 +8,7 @@ PYTHONPATH="."  luigi  \
 --local-scheduler  \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
-  "history_window": 10, 
+  "history_window": 30, 
   "column_stratification": "SessionID",
   "filter_only_buy": true}' \
 --test-size 0.1 \
@@ -19,29 +19,29 @@ PYTHONPATH="."  luigi  \
 --run-evaluate-extra-params " " \
 --sample-size-eval 2000 --obs "Most Popular"
 
-# {'count': 1883,
-#  'coverage_at_20': 0.23199999999999998,
-#  'coverage_at_5': 0.0705,
-#  'mean_average_precision': 0.23818963464092105,
-#  'model_task': 'MostPopularTraining____mars_gym_model_b____22a43850b3',
-#  'mrr_at_10': 0.2179047703344039,
-#  'mrr_at_5': 0.2012126040007081,
-#  'ndcg_at_10': 0.31761205471922455,
-#  'ndcg_at_15': 0.34209003255821546,
-#  'ndcg_at_20': 0.35841711179965924,
-#  'ndcg_at_5': 0.2746144632597502,
-#  'ndcg_at_50': 0.4028361962948689,
-#  'precision_at_1': 0.12639405204460966}
+# {'count': 1923,
+#  'coverage_at_20': 0.22829999999999998,
+#  'coverage_at_5': 0.0676,
+#  'mean_average_precision': 0.23182236457860583,
+#  'model_task': 'MostPopularTraining____mars_gym_model_b____2229d09323',
+#  'mrr_at_10': 0.21124152902624044,
+#  'mrr_at_5': 0.19507713641879007,
+#  'ndcg_at_10': 0.30719757287049576,
+#  'ndcg_at_15': 0.33082660452268003,
+#  'ndcg_at_20': 0.3484842142844164,
+#  'ndcg_at_5': 0.26532690285191335,
+#  'ndcg_at_50': 0.3931065800157984,
+#  'precision_at_1': 0.12428497139885596}
 
 
 # ########################################
-# # NARMModel
+# # MLNARMModel
 # #########################################
 
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_rnn \
---recommender-module-class model.NARMModel \
+--recommender-module-class model.MLNARMModel \
 --recommender-extra-params '{
   "n_factors": 100, 
   "hidden_size": 100, 
@@ -52,7 +52,7 @@ mars-gym run supervised \
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
-  "history_window": 10, 
+  "history_window": 30, 
   "column_stratification": "SessionID",
   "filter_only_buy": true}' \
 --test-size 0.1 \
@@ -67,38 +67,33 @@ mars-gym run supervised \
 --loss-function ce \
 --epochs 100 \
 --run-evaluate  \
---run-evaluate-extra-params "" \
---sample-size-eval 2000 --obs "filter only buy2"
+--run-evaluate-extra-params " " \
+--sample-size-eval 2000 --obs ""
 
-#SupervisedModelTraining____mars_gym_model_b____c549ab3480
+#SupervisedModelTraining____mars_gym_model_b____453fd11ae0
 
-PYTHONPATH="." luigi --module mercado_livre.evaluation MLEvaluationTask \
---model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____c549ab3480 \
---batch-size 1000 \
---local-scheduler
+mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____453fd11ae0 
 
-mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____c549ab3480 
+# {'count': 1923,
+#  'coverage_at_20': 0.41490000000000005,
+#  'coverage_at_5': 0.1361,
+#  'mean_average_precision': 0.48195540613550464,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____453fd11ae0',
+#  'mrr_at_10': 0.46894423395983453,
+#  'mrr_at_5': 0.4577049748656613,
+#  'ndcg_at_10': 0.5295488768349669,
+#  'ndcg_at_15': 0.5436897351847644,
+#  'ndcg_at_20': 0.5518291126438414,
+#  'ndcg_at_5': 0.5004710066212015,
+#  'ndcg_at_50': 0.5849445217401592,
+#  'precision_at_1': 0.41445657826313054}
 
-# {'count': 1883,
-#  'coverage_at_20': 0.44310000000000005,
-#  'coverage_at_5': 0.15,
-#  'mean_average_precision': 0.5056065270486231,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____c549ab3480',
-#  'mrr_at_10': 0.4928396513500072,
-#  'mrr_at_5': 0.48252788104089217,
-#  'ndcg_at_10': 0.5477472675988672,
-#  'ndcg_at_15': 0.5623398645857777,
-#  'ndcg_at_20': 0.5715215652154559,
-#  'ndcg_at_5': 0.521200769656147,
-#  'ndcg_at_50': 0.6016170613387436,
-#  'precision_at_1': 0.443441317047265}
 
 
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_rnn \
---recommender-module-class model.NARMModel \
+--recommender-module-class model.MLNARMModel \
 --recommender-extra-params '{
   "n_factors": 100, 
   "hidden_size": 100, 
@@ -109,7 +104,7 @@ mars-gym run supervised \
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
-  "history_window": 10, 
+  "history_window": 30, 
   "column_stratification": "SessionID",
   "filter_only_buy": false}' \
 --test-size 0.1 \
@@ -127,44 +122,15 @@ mars-gym run supervised \
 --run-evaluate-extra-params " " \
 --sample-size-eval 2000 --obs ""
 
-# {'count': 1575,
-#  'coverage_at_20': 0.293,
-#  'coverage_at_5': 0.0834,
-#  'mean_average_precision': 0.5706972444672092,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____31de201200',
-#  'mrr_at_10': 0.559378936759889,
-#  'mrr_at_5': 0.5508677248677248,
-#  'ndcg_at_10': 0.6209522660691101,
-#  'ndcg_at_15': 0.6357390850957264,
-#  'ndcg_at_20': 0.6441403552044158,
-#  'ndcg_at_5': 0.5989437601845358,
-#  'ndcg_at_50': 0.6678620211665856,
-#  'precision_at_1': 0.5022222222222222}
-
-
-mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____31de201200 
-
-# {'count': 1996,
-#  'coverage_at_20': 0.3539,
-#  'coverage_at_5': 0.1032,
-#  'mean_average_precision': 0.6538278717965795,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____31de201200',
-#  'mrr_at_10': 0.644817810223622,
-#  'mrr_at_5': 0.6378841015364061,
-#  'ndcg_at_10': 0.696523562786302,
-#  'ndcg_at_15': 0.7083197541649245,
-#  'ndcg_at_20': 0.7150715833048564,
-#  'ndcg_at_5': 0.67861785632544,
-#  'ndcg_at_50': 0.7338909585438341,
-#  'precision_at_1': 0.5966933867735471}
 
 
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation MLEvaluationTask \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____31de201200 \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____c549ab3480 \
 --batch-size 1000 \
 --local-scheduler
+
 
 ######################################
 # MLSASRec
@@ -178,13 +144,13 @@ mars-gym run supervised \
   "num_blocks": 2, 
   "num_heads": 1, 
   "dropout": 0.5, 
-  "hist_size": 10,
+  "hist_size": 30,
   "from_index_mapping": false,
   "path_item_embedding": false, 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
-  "history_window": 10, 
+  "history_window": 30, 
   "column_stratification": "SessionID",
   "filter_only_buy": true}' \
 --test-size 0.1 \
@@ -201,21 +167,20 @@ mars-gym run supervised \
 --run-evaluate  \
 --run-evaluate-extra-params " " \
 --sample-size-eval 2000
-#SupervisedModelTraining____mars_gym_model_b____65ecad12c6
 
-# {'count': 1883,
-#  'coverage_at_20': 0.4168,
-#  'coverage_at_5': 0.1335,
-#  'mean_average_precision': 0.41581036701559637,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____65ecad12c6',
-#  'mrr_at_10': 0.40033971457232215,
-#  'mrr_at_5': 0.38983005841741897,
-#  'ndcg_at_10': 0.46969889861629416,
-#  'ndcg_at_15': 0.48525699192261906,
-#  'ndcg_at_20': 0.4982449659162299,
-#  'ndcg_at_5': 0.44225677114874595,
-#  'ndcg_at_50': 0.5362738055808602,
-#  'precision_at_1': 0.33669676048858205}
+# {'count': 1923,
+#  'coverage_at_20': 0.3826,
+#  'coverage_at_5': 0.1195,
+#  'mean_average_precision': 0.36709362226217207,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____cc252e8603',
+#  'mrr_at_10': 0.35052373523512365,
+#  'mrr_at_5': 0.3370168140058935,
+#  'ndcg_at_10': 0.42212608363308307,
+#  'ndcg_at_15': 0.44019740245708744,
+#  'ndcg_at_20': 0.4526532388391623,
+#  'ndcg_at_5': 0.38735167885377786,
+#  'ndcg_at_50': 0.4910920986474575,
+#  'precision_at_1': 0.2860114404576183}
 
 
 
@@ -223,117 +188,13 @@ mars-gym run supervised \
 # TransformerModel
 #########################################
 
-
-mars-gym run supervised \
---project mercado_livre.config.mercado_livre_transformer \
---recommender-module-class model.MLTransformerModel \
---recommender-extra-params '{
-  "n_factors": 100, 
-  "n_hid": 100,
-  "n_head": 1,
-  "n_layers": 1,
-  "num_filters": 50,
-  "dropout": 0.2, 
-  "hist_size": 10, 
-  "from_index_mapping": false,
-  "path_item_embedding": false, 
-  "freeze_embedding": false}' \
---data-frames-preparation-extra-params '{
-  "sample_days": 30, 
-  "history_window": 10, 
-  "column_stratification": "SessionID",
-  "filter_only_buy": true}' \
---test-size 0.1 \
---val-size 0.1 \
---early-stopping-min-delta 0.001 \
---optimizer-params '{"weight_decay": 0}' \
---optimizer radam \
---test-split-type random \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss"]' \
---generator-workers 10  \
---batch-size 512 \
---loss-function ce \
---epochs 1000 \
---run-evaluate  \
---run-evaluate-extra-params " " \
---sample-size-eval 2000 --obs "2"
-
-
-# {'count': 1883,
-#  'coverage_at_20': 0.4706,
-#  'coverage_at_5': 0.1576,
-#  'mean_average_precision': 0.44769524680979,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____2c3439f2a6',
-#  'mrr_at_10': 0.4332279628084195,
-#  'mrr_at_5': 0.4229509647725261,
-#  'ndcg_at_10': 0.49404530238244665,
-#  'ndcg_at_15': 0.5106850728725741,
-#  'ndcg_at_20': 0.5199737572164871,
-#  'ndcg_at_5': 0.4674522099380267,
-#  'ndcg_at_50': 0.5533498850711043,
-#  'precision_at_1': 0.37812002124269783}
-
-
-
-mars-gym run supervised \
---project mercado_livre.config.mercado_livre_transformer \
---recommender-module-class model.MLTransformerModel \
---recommender-extra-params '{
-  "n_factors": 100, 
-  "n_hid": 100,
-  "n_head": 1,
-  "n_layers": 1,
-  "num_filters": 50,
-  "dropout": 0.2, 
-  "hist_size": 10, 
-  "from_index_mapping": false,
-  "path_item_embedding": false, 
-  "freeze_embedding": false}' \
---data-frames-preparation-extra-params '{
-  "sample_days": 30, 
-  "history_window": 20, 
-  "column_stratification": "SessionID",
-  "filter_only_buy": true}' \
---test-size 0.1 \
---val-size 0.1 \
---early-stopping-min-delta 0.001 \
---optimizer-params '{"weight_decay": 0}' \
---optimizer radam \
---test-split-type random \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss"]' \
---generator-workers 10  \
---batch-size 512 \
---loss-function ce \
---epochs 1000 \
---run-evaluate  \
---run-evaluate-extra-params " " \
---sample-size-eval 2000 --obs "2"
-
-# {'count': 1883,
-#  'coverage_at_20': 0.467,
-#  'coverage_at_5': 0.1555,
-#  'mean_average_precision': 0.4516306393730758,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____e9af33328c',
-#  'mrr_at_10': 0.43810134958568303,
-#  'mrr_at_5': 0.4268543104974332,
-#  'ndcg_at_10': 0.506382372445821,
-#  'ndcg_at_15': 0.5201844239794605,
-#  'ndcg_at_20': 0.529385319483825,
-#  'ndcg_at_5': 0.47698445125351163,
-#  'ndcg_at_50': 0.5632105667438765,
-#  'precision_at_1': 0.37599575146043546}
-
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_transformer \
 --recommender-module-class model.MLTransformerModel \
 --recommender-extra-params '{
   "n_factors": 100, 
   "n_hid": 50,
-  "n_head": 4,
+  "n_head": 2,
   "n_layers": 1,
   "num_filters": 100,
   "dropout": 0.2, 
@@ -361,21 +222,21 @@ mars-gym run supervised \
 --epochs 1000 \
 --run-evaluate  \
 --run-evaluate-extra-params " " \
---sample-size-eval 2000 --obs "mask"
+--sample-size-eval 2000 --obs "1"
 
-# {'count': 1946,
-#  'coverage_at_20': 0.44880000000000003,
-#  'coverage_at_5': 0.1429,
-#  'mean_average_precision': 0.40979347113736136,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____8451643eb8',
-#  'mrr_at_10': 0.39512002642783733,
-#  'mrr_at_5': 0.3835817060637205,
-#  'ndcg_at_10': 0.46113793152062266,
-#  'ndcg_at_15': 0.47512378125745064,
-#  'ndcg_at_20': 0.4875703532785683,
-#  'ndcg_at_5': 0.43158280642596586,
-#  'ndcg_at_50': 0.5228131177590638,
-#  'precision_at_1': 0.33504624871531347}
+# {'count': 1923,
+#  'coverage_at_20': 0.4539,
+#  'coverage_at_5': 0.1474,
+#  'mean_average_precision': 0.3824224852186435,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____711adb687a',
+#  'mrr_at_10': 0.36722919710439217,
+#  'mrr_at_5': 0.35355347547235216,
+#  'ndcg_at_10': 0.44172683255404005,
+#  'ndcg_at_15': 0.4570438995872158,
+#  'ndcg_at_20': 0.4685455451193424,
+#  'ndcg_at_5': 0.4063762186764765,
+#  'ndcg_at_50': 0.5060554806757377,
+#  'precision_at_1': 0.3000520020800832}
 
 
 
@@ -388,19 +249,20 @@ mars-gym run supervised \
 --recommender-module-class model.MLCaser \
 --recommender-extra-params '{
   "n_factors": 100, 
-  "p_L": 10, 
+  "p_L": 30, 
   "p_d": 50, 
-  "p_nh": 16,
+  "p_nh": 4,
   "p_nv": 4,  
   "dropout": 0.5, 
-  "hist_size": 10, 
+  "hist_size": 30, 
   "from_index_mapping": false,
   "path_item_embedding": false, 
   "freeze_embedding": false}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
-  "history_window": 10, 
-  "column_stratification": "SessionID"}' \
+  "history_window": 30, 
+  "column_stratification": "SessionID",
+  "filter_only_buy": true}'  \
 --test-size 0.1 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
@@ -413,9 +275,49 @@ mars-gym run supervised \
 --loss-function ce \
 --epochs 100 \
 --run-evaluate  \
---run-evaluate-extra-params "" \
+--run-evaluate-extra-params " " \
 --sample-size-eval 2000 
 
 
 
+mars-gym run supervised \
+--project mercado_livre.config.mercado_livre_rnn \
+--recommender-module-class model.MLCaser \
+--recommender-extra-params '{
+  "n_factors": 100, 
+  "p_L": 30, 
+  "p_d": 50, 
+  "p_nh": 4,
+  "p_nv": 4,  
+  "dropout": 0.5, 
+  "hist_size": 30, 
+  "from_index_mapping": false,
+  "path_item_embedding": false, 
+  "freeze_embedding": false}' \
+--data-frames-preparation-extra-params '{
+  "sample_days": 30, 
+  "history_window": 30, 
+  "column_stratification": "SessionID",
+  "filter_only_buy": false}'  \
+--test-size 0.1 \
+--val-size 0.1 \
+--early-stopping-min-delta 0.0001 \
+--test-split-type random \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 10  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 100 \
+--run-evaluate  \
+--run-evaluate-extra-params " " \
+--sample-size-eval 2000 
 
+
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation MLEvaluationTask \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____1017b578ca \
+--batch-size 1000 \
+--local-scheduler

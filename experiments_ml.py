@@ -3,7 +3,7 @@ from mars_gym.simulation.training import SupervisedModelTraining
 from train import TripletTraining, TripletPredTraining
 import numpy as np
 
-# PYTHONPATH="."  luigi  --module experiments_ml ExperimentRuns --local-scheduler
+# PYTHONPATH="."  luigi  --module experiments_ml MLTransformerModelExperimentRuns --local-scheduler
 class NARMModelExperimentRuns(luigi.WrapperTask):
   '''
   https://luigi.readthedocs.io/en/stable/luigi_patterns.html
@@ -84,7 +84,7 @@ class MLTransformerModelExperimentRuns(luigi.WrapperTask):
   
   evaluate: bool = luigi.BoolParameter(default=False)
   
-  experiments: int = luigi.IntParameter(default=1)
+  experiments: int = luigi.IntParameter(default=100)
 
   def requires(self):
     random_state = np.random.RandomState(self.seed)

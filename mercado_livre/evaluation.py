@@ -55,13 +55,14 @@ class MLEvaluationTask(BaseEvaluationTask):
     pin_memory: bool = luigi.BoolParameter(default=False)
     batch_size: int = luigi.IntParameter(default=100)
     device: str = luigi.ChoiceParameter(choices=["cpu", "cuda"], default="cuda")
+    history_window: int = luigi.IntParameter(default=10)
 
     @property
     def task_name(self):
         return self.model_task_id + "_" + self.task_id.split("_")[-1] + "_sub"
 
     def requires(self):
-        return SessionPrepareTestDataset()
+        return SessionPrepareTestDataset(history_window=self.history_window)
 
     @property
     def torch_device(self) -> torch.device:

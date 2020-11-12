@@ -45,3 +45,9 @@
 * https://arxiv.org/pdf/1706.03847.pdf
 
 
+## 
+https://github.com/uvipen/Character-level-cnn-pytorch/blob/master/src/dataset.py
+https://github.com/uvipen/Character-level-cnn-pytorch/blob/master/src/character_level_cnn.py
+https://github.com/uvipen/Character-level-cnn-pytorch/blob/master/src/utils.py
+https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch/blob/master/narm.py
+https://gympass.zoom.us/rec/play/R4huqP_2jyvIkbyi9HLpAws4uyY01jkfv1woos6pk_9VADEHnVb76CZBfO91xG13OnePhvSU3OpIwZcO.AMreR0siJ-QL1mzM?continueMode=true&_x_zm_rtaid=f8IxoXkLQ9iZwKaAF2g3fg.1605113130880.a5f15c6083bd8cc255354887d05aff77&_x_zm_rhtaid=105

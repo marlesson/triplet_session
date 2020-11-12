@@ -5,7 +5,8 @@ from mars_gym.data.dataset import (
 from mars_gym.meta_config import *
 from mercado_livre import data
 import dataset
-
+import warnings
+warnings.filterwarnings("ignore")
 mercado_livre_interaction = ProjectConfig(
     base_dir=data.BASE_DIR,
     prepare_data_frames_task=data.SessionInteractionDataFrame,
@@ -93,9 +94,35 @@ mercado_livre_transformer = ProjectConfig(
         Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
         Column("timestamp_history", IOType.INT_ARRAY),
         Column("category_id_history", IOType.INDEXABLE_ARRAY),
+        Column("domain_id_history", IOType.INDEXABLE_ARRAY),
         Column("price_history", IOType.FLOAT_ARRAY),
-        
+        Column("last_event_search", IOType.INT_ARRAY),
     ],
     output_column=Column("ItemID", IOType.INDEXABLE),
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
+
+mercado_livre_transformer2 = ProjectConfig(
+    base_dir=data.BASE_DIR,
+    prepare_data_frames_task=data.SessionInteractionDataFrame,
+    dataset_class=dataset.InteractionsDataset,
+    user_column=Column("SessionID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE),
+    timestamp_column_name="Timestamp",
+    available_arms_column_name="",
+    other_input_columns=[
+        Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+        Column("last_event_search", IOType.INT_ARRAY),
+    ],
+    output_column=Column("ItemID", IOType.INDEXABLE),
+    recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
+)
+        # Column("last_ItemID", IOType.INDEXABLE, same_index_as="ItemID"),
+        # Column("last_event_search", IOType.INT_ARRAY),
+        # Column("last_event_type", IOType.INDEXABLE),        
+        # Column("event_type_history", IOType.INDEXABLE_ARRAY),
+        # Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+        # Column("timestamp_history", IOType.INT_ARRAY),
+        # Column("category_id_history", IOType.INDEXABLE_ARRAY),
+        # Column("domain_id_history", IOType.INDEXABLE_ARRAY),
+        # Column("price_history", IOType.FLOAT_ARRAY),

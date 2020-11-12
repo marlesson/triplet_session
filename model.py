@@ -1047,7 +1047,226 @@ class MLNARMModel(RecommenderModule):
     def init_hidden(self, batch_size):
         return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
 
+def embedded_dropout(embed, words, dropout=0.1):
+    mask = embed.weight.data.new_empty((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
+    masked_embed_weight = mask * embed.weight
+    return torch.nn.functional.embedding(words, masked_embed_weight)
+
 class MLTransformerModel(RecommenderModule):
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        n_factors: int,
+        n_hid: int,
+        n_head: int,
+        n_layers: int,
+        num_filters: int,
+        path_item_embedding: str,
+        from_index_mapping: str,
+        dropout: float,
+        hist_size: int,
+        freeze_embedding: bool
+    ):
+        super().__init__(project_config, index_mapping)
+        self.path_item_embedding = path_item_embedding
+        self.dropout_fac = dropout
+
+        filter_sizes: List[int] = [3, 4, 5]# [1, 3, 5] #1 3 5
+        n_time_dim = 50
+
+        self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
+                                                from_index_mapping, index_mapping, freeze_embedding)
+        self.category_emb = nn.Embedding(len(self._index_mapping["category_id_history"]), n_factors)
+        self.domain_emb   = nn.Embedding(len(self._index_mapping["domain_id_history"]), n_factors)
+
+        # CharCNN
+        vocabulary  = list("""abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")
+        self.voc_emb     = nn.Embedding.from_pretrained(torch.from_numpy(np.hstack((np.zeros((len(vocabulary)-1,1)), np.identity(len(vocabulary)-1)))).float().T, freeze=True)
+        self.emb_search  = nn.Linear(len(vocabulary)-1, n_factors)
+        self.char_window = 100
+        n_char_conv_filters = 100
+
+        self.char_cnn = nn.Sequential(
+            nn.Conv1d(len(vocabulary)-1, n_char_conv_filters, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=3, padding=0), nn.ReLU(),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=3, padding=0), nn.ReLU(), nn.MaxPool1d(3)
+        )
+
+
+        self.emb_drop = nn.Dropout(p=dropout)
+        self.dropout  = nn.Dropout(p=dropout)
+
+        n_factors_2 = n_factors# * 3 + 2
+
+        self.pos_encoder    = PositionalEncoding(n_factors_2, dropout)
+        encoder_layers      =  nn.TransformerEncoderLayer(n_factors_2, n_head, n_hid, dropout)
+        self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, n_layers)
+
+        self.time_emb  = TimeEmbedding(n_time_dim, n_factors_2)
+
+        self.convs = nn.ModuleList(
+            [nn.Conv1d(1, num_filters, K*n_factors_2, stride=n_factors_2) for K in filter_sizes])
+
+        conv_size_out = len(filter_sizes) * num_filters
+
+        self.d1 = nn.Sequential(
+            nn.BatchNorm1d(n_factors),
+            nn.Linear(n_factors, n_factors)
+        )
+
+        self.d2 = nn.Sequential(
+            nn.BatchNorm1d(n_factors),
+            nn.Linear(n_factors, n_factors)
+        )
+
+        input_dense = n_factors * hist_size + n_factors + n_factors
+        self.dense = nn.Sequential(
+            nn.BatchNorm1d(input_dense),
+            nn.Linear(input_dense, n_factors),
+            nn.ReLU(),
+            nn.Linear(n_factors, n_factors),
+            nn.ReLU()
+        )
+        self.b = nn.Linear(n_factors, n_factors)
+
+        self.use_normalize = False
+        self.weight_init = lecun_normal_init
+        self.apply(self.init_weights)
+
+    def init_weights(self, module: nn.Module):
+        if type(module) == nn.Linear:
+            self.weight_init(module.weight)
+            module.bias.data.fill_(0.1)
+    
+    #We can then build a convenient cloning function that can generate multiple layers:
+    def get_clones(self, module, N):
+        return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
+            
+    def layer_transform(self, x, mask=None):
+        for i in range(self.transform_n):
+            x = self.layers[i](x, mask)
+        x = self.norm(x)
+        return x            
+
+    def conv_block(self, x):
+        x = x.view(x.size(0), 1, -1)
+        x = [F.relu(conv(x)) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+
+        return x
+
+    def flatten(self, input):
+        return input.view(input.size(0), -1)
+
+    def normalize(self, x: torch.Tensor, dim: int = 1) -> torch.Tensor:
+        if self.use_normalize:
+            x = F.normalize(x, p=2, dim=dim)
+        return x
+    
+    def src_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def layer_transformer(self, src, mask_hist):
+        # Create transform mask
+        mask          = self.src_mask(len(src)).to(src.device)
+        src           = self.pos_encoder(src*mask_hist)
+        att_hist_emb  = self.transformer_encoder(src, mask) # (B, H, E)
+        
+        return att_hist_emb
+
+    def add_pad_tensor(self, a, pad = 500):
+        if isinstance(a, torch.Tensor):
+            a = a.cpu().detach().numpy()
+
+        return torch.Tensor([(np.pad(w[:pad]+1, (0, pad-len(w[:pad]+1)), mode='constant', constant_values=0)) for w in a]).long()
+
+    def forward(self, session_ids, item_ids, 
+                        item_history_ids, 
+                        time_diff_history, 
+                        category_id_history,
+                        domain_id_history,
+                        price_history,
+                        last_event_search):
+        # Item History embs
+        item_hist_emb   =   embedded_dropout(self.item_emb, item_history_ids.long(), 
+                                dropout=self.dropout_fac if self.training else 0)
+
+        # Char Emb - Last Event Search
+        emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
+        emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
+
+
+        #embedded_dropout(self.item_emb, item_history_ids, self.dropout_fac)
+                            #    self.normalize(self.item_emb(item_history_ids), 2)
+                            #)#[0] # (B, H, E)
+        
+        # cat_hist_emb    =   self.emb_drop(
+        #                         self.normalize(self.category_emb(category_id_history), 2)
+        #                     )#[0] # (B, H, E)
+
+        # dom_hist_emb    =   self.emb_drop(
+        #                         self.normalize(self.domain_emb(domain_id_history), 2)
+        #                     )#[0] # (B, H, E)
+
+
+        # Time Emb        
+        time_emb    = self.time_emb(time_diff_history.float().unsqueeze(2)) # (B, H, E)
+
+        # Mask history
+        mask_hist   = (item_history_ids != 0).to(item_history_ids.device).float()
+        mask_hist   = mask_hist.unsqueeze(1).repeat((1,item_hist_emb.size(2),1)).permute(0,2,1)
+
+        # Create transform mask
+        att_hist_emb = self.layer_transformer(item_hist_emb, mask_hist) # (B, H, E)
+
+        # Add time emb
+        hist_conv   = (att_hist_emb + time_emb)*mask_hist/2
+        
+        # Last Item
+        last_item   = item_hist_emb[:,0]
+
+        join        = torch.cat([self.d2(last_item), 
+                                self.d1(emb_search), 
+                                self.flatten(hist_conv)], 1)
+
+        pred_emb    = self.dense(join) # (B, E)
+        pred_emb    = self.dropout(pred_emb)
+        # Predict
+
+        item_embs   = self.item_emb(torch.arange(self._n_items).to(item_history_ids.device).long()) # (Dim, E)
+        scores      = torch.matmul(pred_emb, self.b(item_embs).permute(1, 0)) # (B, dim)
+
+        return scores
+
+    def recommendation_score(self, session_ids, item_ids, 
+                                    item_history_ids, 
+                                    time_diff_history, 
+                                    category_id_history,
+                                    domain_id_history,
+                                    price_history,
+                                    last_event_search):
+        
+        scores = self.forward(session_ids, item_ids, 
+                                item_history_ids, 
+                                time_diff_history, 
+                                category_id_history,
+                                domain_id_history,
+                                price_history,
+                                last_event_search)
+                                
+        scores = scores[torch.arange(scores.size(0)),item_ids]
+
+        return scores
+
+
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
+
+class MLTransformerModel2(RecommenderModule):
     def __init__(
         self,
         project_config: ProjectConfig,
@@ -1069,15 +1288,18 @@ class MLTransformerModel(RecommenderModule):
         filter_sizes: List[int] = [3, 4, 5]# [1, 3, 5] #1 3 5
         n_time_dim = 50
 
+        vocabulary  = list("""Pabcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")
+        self.voc_emb     = nn.Embedding.from_pretrained(torch.from_numpy(np.identity(len(vocabulary))).float(), freeze=True)
+        self.emb_search  = nn.Linear(len(vocabulary), n_factors)
+        self.char_window = 100
+        n_char_conv_filters = 32
+
         self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
                                                 from_index_mapping, index_mapping, freeze_embedding)
-        self.category_emb = nn.Embedding(len(self._index_mapping["category_id_history"]), n_factors)
-        #self.domain_emb   = nn.Embedding(len(self._index_mapping["domain_id_history"]), n_factors)
-
         self.emb_drop = nn.Dropout(p=dropout)
         self.dropout  = nn.Dropout(p=dropout)
 
-        n_factors_2 = n_factors * 2
+        n_factors_2 = n_factors# * 3 + 2
 
         self.pos_encoder    = PositionalEncoding(n_factors_2, dropout)
         encoder_layers      =  nn.TransformerEncoderLayer(n_factors_2, n_head, n_hid, dropout)
@@ -1085,22 +1307,53 @@ class MLTransformerModel(RecommenderModule):
 
         self.time_emb  = TimeEmbedding(n_time_dim, n_factors_2)
 
-        self.convs1 = nn.ModuleList(
-            [nn.Conv2d(1, num_filters, (K, n_factors_2)) for K in filter_sizes])
-
-        self.convs2 = nn.ModuleList(
+        self.convs = nn.ModuleList(
             [nn.Conv1d(1, num_filters, K*n_factors_2, stride=n_factors_2) for K in filter_sizes])
 
         conv_size_out = len(filter_sizes) * num_filters
         #conv_size_out = n_factors_2*hist_size
+        # self.dense = nn.Sequential(
+        #     nn.BatchNorm1d(conv_size_out + n_factors),
+        #     nn.Linear(conv_size_out + n_factors, conv_size_out + n_factors),
+        #     nn.ReLU(),
+        #     nn.Linear(conv_size_out + n_factors, n_factors),
+        # )
+        self.d1 = nn.Sequential(
+            nn.BatchNorm1d(n_factors * hist_size),
+            nn.Linear(n_factors * hist_size, n_factors),
+        )
+
+        self.d2 = nn.Sequential(
+            nn.BatchNorm1d(n_factors),
+            nn.Linear(n_factors, n_factors),
+            nn.ReLU()
+        )
+
+        # self.dense = nn.Sequential(
+        #     nn.BatchNorm1d(n_factors * 2),
+        #     nn.Linear(n_factors * 2, n_factors),
+        #     nn.ReLU(),
+        #     nn.Linear(n_factors, n_factors),
+        # )
+        char_cnn_dim = len(vocabulary)
+        self.char_cnn = nn.Sequential(
+            nn.Conv1d(char_cnn_dim, n_char_conv_filters, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=3, padding=0), nn.ReLU(),
+            nn.Conv1d(n_char_conv_filters, n_char_conv_filters, kernel_size=3, padding=0), nn.ReLU(), nn.MaxPool1d(3)
+        )
+
+
         self.dense = nn.Sequential(
-            nn.Linear(conv_size_out + n_factors, conv_size_out + n_factors),
+            nn.BatchNorm1d(n_factors * hist_size + n_factors),
+            nn.Linear(n_factors * hist_size + n_factors, n_factors),
             nn.ReLU(),
-            nn.Linear(conv_size_out + n_factors, n_factors),
+            nn.Linear(n_factors, n_factors),
+            nn.ReLU()
         )
         self.b = nn.Linear(n_factors, n_factors)
 
-        self.use_normalize = True
+        self.use_normalize = False
         self.weight_init = lecun_normal_init
         self.apply(self.init_weights)
 
@@ -1120,20 +1373,13 @@ class MLTransformerModel(RecommenderModule):
         return x            
 
     def conv_block(self, x):
-        x = x.unsqueeze(1)
-        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
-        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        x = torch.cat(x, 1)
-
-        return x
-
-    def conv_block2(self, x):
         x = x.view(x.size(0), 1, -1)
-        x = [F.relu(conv(x)) for conv in self.convs2]
+        x = [F.relu(conv(x)) for conv in self.convs]
         x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         x = torch.cat(x, 1)
 
         return x
+
     def flatten(self, input):
         return input.view(input.size(0), -1)
 
@@ -1147,50 +1393,59 @@ class MLTransformerModel(RecommenderModule):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
+    def layer_transformer(self, src, mask_hist):
+        # Create transform mask
+        mask          = self.src_mask(len(src)).to(src.device)
+        src           = self.pos_encoder(src*mask_hist)
+        att_hist_emb  = self.transformer_encoder(src, mask) # (B, H, E)
+        
+        return att_hist_emb
+
+    def add_pad_tensor(self, a, pad = 500):
+        if isinstance(a, torch.Tensor):
+            a = a.cpu().detach().numpy()
+
+        return torch.Tensor([(np.pad(w[:pad]+1, (0, pad-len(w[:pad]+1)), mode='constant', constant_values=0)) for w in a]).long()
+
     def forward(self, session_ids, item_ids, 
                         item_history_ids, 
-                        time_diff_history, 
-                        category_id_history,
-                        price_history):
+                        last_event_search):
         # Item History embs
         item_hist_emb   =   self.emb_drop(
                                 self.normalize(self.item_emb(item_history_ids), 2)
                             )#[0] # (B, H, E)
         
-        cat_hist_emb    =   self.emb_drop(
-                                self.normalize(self.category_emb(category_id_history), 2)
-                            )#[0] # (B, H, E)
-
-        # dom_hist_emb    =   self.emb_drop(
-        #                         self.normalize(self.domain_emb(domain_id_history), 2)
-        #                     )#[0] # (B, H, E)
-
+        item_hist_emb2   =   embedded_dropout(self.item_emb, item_history_ids.long(), 
+                                dropout=0.1 if self.training else 0)
 
         # join hist features
-        hist_emb = torch.cat([item_hist_emb, 
-                              cat_hist_emb], dim=2)
-# , 
-#                               price_history.unsqueeze(2).float()
+        # hist_emb = torch.cat([item_hist_emb, 
+        #                       cat_hist_emb,
+        #                       dom_hist_emb], dim=2)
+        
 
-        # Time Emb        
-        time_emb    = self.time_emb(time_diff_history.float().unsqueeze(2)) # (B, H, E)
+        # # ,
+        #                               price_history.unsqueeze(2).float(),
+        #                               torch.ones(price_history.shape).to(item_history_ids.device).unsqueeze(2).float()
+        #
+
+        emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
+        emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
 
         # Mask history
         mask_hist   = (item_history_ids != 0).to(item_history_ids.device).float()
-        mask_hist   = mask_hist.unsqueeze(1).repeat((1,hist_emb.size(2),1)).permute(0,2,1)
+        mask_hist   = mask_hist.unsqueeze(1).repeat((1,item_hist_emb.size(2),1)).permute(0,2,1)
 
         # Create transform mask
-        mask          = self.src_mask(len(item_history_ids)).to(item_history_ids.device)
-        src           = self.pos_encoder(hist_emb*mask_hist)
-        att_hist_emb  = self.transformer_encoder(src, mask) # (B, H, E)
-        
+        att_hist_emb = self.layer_transformer(item_hist_emb, mask_hist) # (B, H, E)
+
         # Add time emb
-        last_item   = item_hist_emb[:,0]
-        hist_conv   = (att_hist_emb + time_emb)*mask_hist/2
+        hist_conv   = att_hist_emb
         
-        conv_hist   = self.conv_block2(hist_conv) # (B, C)
-        #conv_hist   = self.flatten(hist_conv)
-        join        = torch.cat([last_item, conv_hist], 1)
+        # Last Item
+        last_item   = item_hist_emb[:,0]
+
+        join        = torch.cat([self.d2(last_item), self.flatten(hist_conv)], 1)
 
         pred_emb    = self.dense(join) # (B, E)
         pred_emb    = self.dropout(pred_emb)
@@ -1202,15 +1457,16 @@ class MLTransformerModel(RecommenderModule):
         return scores
 
     def recommendation_score(self, session_ids, item_ids, 
-                                    item_history_ids, 
-                                    time_diff_history, 
-                                    category_id_history,
-                                    price_history):
+                        item_history_ids, 
+                        last_event_search):
         
-        scores = self.forward(session_ids, item_ids, item_history_ids, time_diff_history, category_id_history, price_history)
+        scores = self.forward(session_ids, item_ids, 
+                        item_history_ids, 
+                        last_event_search)
         scores = scores[torch.arange(scores.size(0)),item_ids]
 
         return scores
+
 
 class MLCaser(RecommenderModule):
     '''
@@ -1280,6 +1536,7 @@ class MLCaser(RecommenderModule):
         self.item_embeddings.weight.data.normal_(0, 1.0 / self.item_embeddings.embedding_dim)
         self.W2.weight.data.normal_(0, 1.0 / self.W2.embedding_dim)
         self.b2.weight.data.zero_()
+        self.b = nn.Linear(n_factors, n_factors)
 
         self.cache_x = None
 
@@ -1330,11 +1587,14 @@ class MLCaser(RecommenderModule):
         # fully-connected layer
         z = self.ac_fc(self.fc1(out))
 
-        output     = self.out(z) #torch.softmax(self.out(final_feat), dim=1)
+        #output     = self.out(z) #torch.softmax(self.out(final_feat), dim=1)
         #output     = torch.softmax(output, dim=1)
         #self.sf  = nn.Softmax()
         
-        return output
+        item_embs   = self.item_embeddings(torch.arange(self._n_items).to(item_history_ids.device).long()) # (Dim, E)
+        scores      = torch.matmul(z, self.b(item_embs).permute(1, 0)) # (B, dim)
+
+        return scores
 
 
     def recommendation_score(self, session_ids, item_ids, item_history_ids):
@@ -1380,7 +1640,8 @@ class MLSASRec(RecommenderModule):
         self.forward_layers = torch.nn.ModuleList()
 
         self.last_layernorm = torch.nn.LayerNorm(n_factors, eps=1e-8)
-        
+        self.b = nn.Linear(n_factors, n_factors)
+
         #self.out = nn.Linear(self._n_items, self._n_items)
 
         for _ in range(num_blocks):
@@ -1445,7 +1706,7 @@ class MLSASRec(RecommenderModule):
         #logits     = (final_feat * item_embs).sum(-1) # (B)
 
         item_embs   = self.item_emb(torch.arange(self._n_items).to(item_history_ids.device).long())
-        scores      = torch.matmul(final_feat, item_embs.permute(1, 0))
+        scores      = torch.matmul(final_feat, self.b(item_embs).permute(1, 0))
 
         #output     = self.out(scores) #torch.softmax(self.out(final_feat), dim=1)
         #self.sf  = nn.Softmax()
