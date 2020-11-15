@@ -26,13 +26,16 @@ import copy
 from torch.autograd import Variable
 import gensim
 
-WORD_PAD  = 8843
-WORD_DICT = 18754
+WORD_PAD  = 18755
+WORD_UNK  = 18754
+WORD_DICT = 18756
 #---------------------------------- AUX --------------------
 
 def load_wordvec(n_factors, path, freeze_embedding):
     if path:
         model  = gensim.models.KeyedVectors.load_word2vec_format(path, binary=True)
+        model.add(['UNK', 'PAD'], [np.random.random(100), np.random.random(100)])
+
         embs   = nn.Embedding.from_pretrained(torch.from_numpy(model.wv.syn0).float(), freeze=freeze_embedding)
     else:
         embs = nn.Embedding(WORD_DICT, n_factors)
@@ -689,7 +692,6 @@ class GRURecModel(RecommenderModule):
 
         return scores
 
-
 class NARMModel(RecommenderModule):
     '''
     https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch.git
@@ -1037,7 +1039,15 @@ class MLNARMModel(RecommenderModule):
         #     self.attention_layers.append(
         #             torch.nn.MultiheadAttention(n_factors, num_heads,dropout))
 
-        output_dense_size =  2 * self.hidden_size + dense_size
+        self.num_filters = 32
+        self.filter_sizes: List[int] = [1, 3, 5]
+        self.conv_size_out = len(self.filter_sizes) * self.num_filters
+
+        self.convs1 = nn.ModuleList(
+            [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
+
+
+        output_dense_size =  2 * self.hidden_size + self.conv_size_out + dense_size
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
@@ -1047,15 +1057,25 @@ class MLNARMModel(RecommenderModule):
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    def conv_block(self, x):
+	# conv_out.size() = (batch_size, out_channels, dim, 1)
+        x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+
+        return x
+
     def add_pad_tensor(self, arr, pad = 100, constant_values=0):
         if isinstance(arr, torch.Tensor):
             arr = arr.cpu().detach().numpy()
 
-        return torch.Tensor([(np.pad(w[:pad]+1, (0, pad-len(w[:pad]+1)), mode='constant', constant_values=constant_values)) for w in arr]).long()
+        return torch.Tensor([(np.pad(w[:pad], (0, pad-len(w[:pad])), mode='constant', constant_values=constant_values)) for w in arr]).long()
 
     def join_word_tokens(self, last_ItemID_title, last_event_search, size = 50):
         tensor_last_ItemID_title = self.add_pad_tensor(last_ItemID_title, size, WORD_PAD)
         tensor_last_event_search = self.add_pad_tensor(last_event_search, size, WORD_PAD)
+        
         last_text_idx  = torch.cat([tensor_last_ItemID_title, tensor_last_event_search], 1)#.to(self.device)
         mask_text      = (last_text_idx != WORD_PAD).float()
 
@@ -1084,6 +1104,9 @@ class MLNARMModel(RecommenderModule):
         # Word Title + Search History
         last_text_idx, mask_text = self.join_word_tokens(last_ItemID_title, last_event_search, 15)
         word_emb   = self.emb_dropout(self.word_emb(last_text_idx.to(device)))
+        mask_text  = mask_text.to(device).unsqueeze(1).repeat((1,word_emb.size(2),1)).permute(0,2,1)
+        word_emb   = word_emb * mask_text
+        word_emb   = self.conv_block(word_emb)
 
         # Time Emb        
         time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
@@ -1097,11 +1120,11 @@ class MLNARMModel(RecommenderModule):
         # GRU
         gru_out1, hidden = self.gru1(embs, hidden)
         gru_out2, _ = self.gru2(emb_domain, hidden)
-        gru_out3, _ = self.gru3(word_emb, hidden)
+        #gru_out3, hidden3 = self.gru3(word_emb, hidden)
 
         # fetch the last hidden state of last timestamp
         ht          = hidden.permute(1, 0, 2)[:, -1] 
-        gru_out     = gru_out1 + gru_out2 + gru_out3#.permute(1, 0, 2)
+        gru_out     = gru_out1 + gru_out2# + gru_out3#.permute(1, 0, 2)
 
         c_global    = ht
         q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
@@ -1115,7 +1138,7 @@ class MLNARMModel(RecommenderModule):
         alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
         c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
         
-        c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
+        c_t         = torch.cat([c_local, word_emb, c_global, dense_features.float()], 1)
         c_t         = self.dense(self.ct_dropout(c_t))
         
         item_embs   = self.emb(torch.arange(self._n_items).to(device).long())

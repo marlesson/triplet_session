@@ -70,6 +70,11 @@ BASE_TEST_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "merca
 BASE_METADATA_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "item_data.jl")
 
 WORD_MODEL  = gensim.models.KeyedVectors.load_word2vec_format(os.path.join(BASE_DIR, "assets", 'mercadolivre-100d.bin'), binary=True)
+WORD_MODEL.add(['UNK', 'PAD'], [np.random.random(100), np.random.random(100)])
+WORD_PAD  = 18755
+WORD_UNK  = 18754
+WORD_DICT = 18756
+
 
 DEBUG       = False
 
@@ -125,9 +130,9 @@ def word_tokenizer(text):
     #tokens    = [t for t in tokens if t not in stopwords]
 
     if len(tokens) == 0:
-        tokens.append("<pad>") 
+        tokens.append("UNK") 
     
-    return [WORD_MODEL.vocab[word].index if word in WORD_MODEL.wv else WORD_MODEL.vocab["<pad>"].index for word in tokens]
+    return [WORD_MODEL.vocab[word].index if word in WORD_MODEL.wv else WORD_MODEL.vocab["UNK"].index for word in tokens]
 
 udf_word_tokenizer = F.udf(word_tokenizer, ArrayType(IntegerType()))
 
@@ -341,18 +346,19 @@ class TextDataProcess(BasePySparkTask):
         df_test = self.add_more_information(df_test)
         
         #Apply tokenizer 
+        int_pad_history = pad_history(IntegerType())
 
         ## Metadada
         text_column = "title"
-        df = df.withColumn(text_column, udf_word_tokenizer(col(text_column)))
-        
+        df = df.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))
+        pad_history
         ## Train
         text_column = "event_search"
-        df_train = df_train.withColumn(text_column, udf_word_tokenizer(col(text_column)))        
+        df_train = df_train.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))        
 
         ## Test
         text_column = "event_search"
-        df_test = df_test.withColumn(text_column, udf_word_tokenizer(col(text_column)))                
+        df_test = df_test.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))                
 
         # Reindex
         df_category_id  = df.select("category_id").orderBy(col('category_id'))\
@@ -445,7 +451,8 @@ class SessionPrepareDataset(BasePySparkTask):
         # Add Last Item
         
         df = df.withColumn("last_ItemID",       lag(df.ItemID, 1).over(w).cast("int"))
-        df = df.withColumn("last_ItemID_title", lag(df.title, 1).over(w))
+        int_pad_history = pad_history(IntegerType())
+        df = df.withColumn("last_ItemID_title", int_pad_history(lag(df.title, 1).over(w), lit(15), lit(WORD_PAD)))
 
         df = df.withColumn("last_event_search",     lag(df.event_search, 1).over(w))
         df = df.withColumn("last_event_type_idx",   lag(df.event_type_idx, 1).over(w))
