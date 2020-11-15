@@ -74,19 +74,19 @@ mars-gym run supervised \
 
 mars-gym evaluate supervised --model-task-id SupervisedModelTraining____mars_gym_model_b____453fd11ae0 
 
-# {'count': 1923,
-#  'coverage_at_20': 0.41490000000000005,
-#  'coverage_at_5': 0.1361,
-#  'mean_average_precision': 0.48195540613550464,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____453fd11ae0',
-#  'mrr_at_10': 0.46894423395983453,
-#  'mrr_at_5': 0.4577049748656613,
-#  'ndcg_at_10': 0.5295488768349669,
-#  'ndcg_at_15': 0.5436897351847644,
-#  'ndcg_at_20': 0.5518291126438414,
-#  'ndcg_at_5': 0.5004710066212015,
-#  'ndcg_at_50': 0.5849445217401592,
-#  'precision_at_1': 0.41445657826313054}
+# {'count': 1929,
+#  'coverage_at_20': 0.40850000000000003,
+#  'coverage_at_5': 0.1367,
+#  'mean_average_precision': 0.49381611669646547,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____4837df0052',
+#  'mrr_at_10': 0.4801842388934146,
+#  'mrr_at_5': 0.4703300501123207,
+#  'ndcg_at_10': 0.5372375960288047,
+#  'ndcg_at_15': 0.5540906128708187,
+#  'ndcg_at_20': 0.5638218738869204,
+#  'ndcg_at_5': 0.5115074004182429,
+#  'ndcg_at_50': 0.5941265984374638,
+#  'precision_at_1': 0.42871954380508037}
 
 
 
@@ -156,6 +156,7 @@ mars-gym run supervised \
 --test-size 0.1 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
+--early-stopping-patience 10 \
 --test-split-type random \
 --dataset-split-method column \
 --learning-rate 0.001 \
@@ -224,19 +225,20 @@ mars-gym run supervised \
 --run-evaluate-extra-params " " \
 --sample-size-eval 2000 --obs "1"
 
-# {'count': 1923,
-#  'coverage_at_20': 0.4539,
-#  'coverage_at_5': 0.1474,
-#  'mean_average_precision': 0.3824224852186435,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____711adb687a',
-#  'mrr_at_10': 0.36722919710439217,
-#  'mrr_at_5': 0.35355347547235216,
-#  'ndcg_at_10': 0.44172683255404005,
-#  'ndcg_at_15': 0.4570438995872158,
-#  'ndcg_at_20': 0.4685455451193424,
-#  'ndcg_at_5': 0.4063762186764765,
-#  'ndcg_at_50': 0.5060554806757377,
-#  'precision_at_1': 0.3000520020800832}
+# {'count': 1929,
+#  'coverage_at_20': 0.4448,
+#  'coverage_at_5': 0.1454,
+#  'mean_average_precision': 0.3778826863317416,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____70da0cf57e',
+#  'mrr_at_10': 0.3606737597406337,
+#  'mrr_at_5': 0.35003456022118545,
+#  'ndcg_at_10': 0.4253639092532274,
+#  'ndcg_at_15': 0.4471016258677674,
+#  'ndcg_at_20': 0.4596249189904367,
+#  'ndcg_at_5': 0.39755208750122584,
+#  'ndcg_at_50': 0.49650543558321963,
+#  'precision_at_1': 0.30171073094867806}
+
 
 
 

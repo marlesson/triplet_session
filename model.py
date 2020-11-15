@@ -24,9 +24,20 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util.transformer import *
 import copy
 from torch.autograd import Variable
+import gensim
 
-
+WORD_PAD  = 8843
+WORD_DICT = 18754
 #---------------------------------- AUX --------------------
+
+def load_wordvec(n_factors, path, freeze_embedding):
+    if path:
+        model  = gensim.models.KeyedVectors.load_word2vec_format(path, binary=True)
+        embs   = nn.Embedding.from_pretrained(torch.from_numpy(model.wv.syn0).float(), freeze=freeze_embedding)
+    else:
+        embs = nn.Embedding(WORD_DICT, n_factors)
+    
+    return embs
 
 def load_embedding(_n_items, n_factors, path_item_embedding, path_from_index_mapping, index_mapping, freeze_embedding):
 
@@ -678,6 +689,7 @@ class GRURecModel(RecommenderModule):
 
         return scores
 
+
 class NARMModel(RecommenderModule):
     '''
     https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch.git
@@ -696,9 +708,9 @@ class NARMModel(RecommenderModule):
     ):
         super().__init__(project_config, index_mapping)
 
-        self.hidden_size = hidden_size
-        self.n_layers = n_layers
-        self.embedding_dim = n_factors
+        self.hidden_size    = hidden_size
+        self.n_layers       = n_layers
+        self.embedding_dim  = n_factors
         #self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
 
         self.emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
@@ -706,44 +718,49 @@ class NARMModel(RecommenderModule):
 
         self.emb_dropout = nn.Dropout(dropout)
         self.gru = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers)
+
         self.a_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.a_2 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
+        
         self.ct_dropout = nn.Dropout(dropout)
         self.b = nn.Linear(self.embedding_dim, 2 * self.hidden_size, bias=False)
+        
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def forward(self, session_ids, item_ids, item_history_ids):
         device = item_ids.device
         seq    = item_history_ids.permute(1,0)  #TODO
 
-        hidden = self.init_hidden(seq.size(1)).to(device)
-        embs = self.emb_dropout(self.emb(seq))
-        #embs = pack_padded_sequence(embs, lengths)
+        hidden  = self.init_hidden(seq.size(1)).to(device)
+        embs    = self.emb_dropout(self.emb(seq))
+
         gru_out, hidden = self.gru(embs, hidden)
-        #gru_out, lengths = pad_packed_sequence(gru_out)
 
         # fetch the last hidden state of last timestamp
-        ht = hidden[-1]
+        ht      = hidden[-1]
         gru_out = gru_out.permute(1, 0, 2)
 
         c_global = ht
         q1 = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
         q2 = self.a_2(ht)
 
-        mask = torch.where(seq.permute(1, 0) > 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        mask      = torch.where(seq.permute(1, 0) > 0, torch.tensor([1.], device = device), 
+                        torch.tensor([0.], device = device))
 
         q2_expand = q2.unsqueeze(1).expand_as(q1)
         q2_masked = mask.unsqueeze(2).expand_as(q1) * q2_expand
 
-        alpha = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
+        alpha   = self.v_t(torch.sigmoid(q1 + q2_masked)\
+                    .view(-1, self.hidden_size))\
+                    .view(mask.size())
         c_local = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
 
-        c_t = torch.cat([c_local, c_global], 1)
-        c_t = self.ct_dropout(c_t)
+        c_t     = torch.cat([c_local, c_global], 1)
+        c_t     = self.ct_dropout(c_t)
         
-        item_embs = self.emb(torch.arange(self._n_items).to(device).long())
-        scores = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
+        item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
+        scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
 
         return scores
 
@@ -756,6 +773,8 @@ class NARMModel(RecommenderModule):
 
     def init_hidden(self, batch_size):
         return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
+
+
         
 class MatrixFactorizationModel(RecommenderModule):
     def __init__(
@@ -974,6 +993,7 @@ class MLNARMModel(RecommenderModule):
         n_factors: int,
         n_layers: int,
         hidden_size: int,
+        dense_size: int,
         path_item_embedding: str,
         from_index_mapping: str,
         freeze_embedding: bool,        
@@ -981,65 +1001,146 @@ class MLNARMModel(RecommenderModule):
     ):
         super().__init__(project_config, index_mapping)
 
-        self.hidden_size    = hidden_size
-        self.n_layers       = n_layers
-        self.embedding_dim  = n_factors
-        #self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
+        self.hidden_size = hidden_size
+        self.n_layers = n_layers
+        self.embedding_dim = n_factors
+        n_time_dim      = 100
 
-        self.emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
-                                                from_index_mapping, index_mapping, freeze_embedding)
+        self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
+
+        self.emb_domain = nn.Embedding(len(self._index_mapping["domain_idx_history"]), self.embedding_dim)
+        self.emb        = load_embedding(self._n_items, n_factors, False, 
+                                                from_index_mapping, index_mapping, False)
+        self.time_emb   = TimeEmbedding(n_time_dim, n_factors)
 
         self.emb_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers)
+        self.gru1 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)
+        self.gru2 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)
+        self.gru3 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)        
 
         self.a_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.a_2 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
-        
         self.ct_dropout = nn.Dropout(dropout)
-        self.b = nn.Linear(self.embedding_dim, 2 * self.hidden_size, bias=False)
+
+
+        # self.attention_layernorms   = torch.nn.ModuleList() # to be Q for self-attention
+        # self.attention_layers       = torch.nn.ModuleList()
+        # self.last_layernorm         = torch.nn.LayerNorm(n_factors, eps=1e-8)
         
+        # num_blocks = 1
+        # num_heads  = 1
+
+        # for _ in range(num_blocks):
+        #     self.attention_layernorms.append(
+        #             torch.nn.LayerNorm(n_factors, eps=1e-8))
+        #     self.attention_layers.append(
+        #             torch.nn.MultiheadAttention(n_factors, num_heads,dropout))
+
+        output_dense_size =  2 * self.hidden_size + dense_size
+
+        self.dense = nn.Sequential(
+            nn.BatchNorm1d(output_dense_size),
+            nn.Linear(output_dense_size, output_dense_size)
+        )
+
+        self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def forward(self, session_ids, item_ids, item_history_ids):
-        device = item_ids.device
-        seq    = item_history_ids.permute(1,0)  #TODO
+    def add_pad_tensor(self, arr, pad = 100, constant_values=0):
+        if isinstance(arr, torch.Tensor):
+            arr = arr.cpu().detach().numpy()
 
-        hidden  = self.init_hidden(seq.size(1)).to(device)
-        embs    = self.emb_dropout(self.emb(seq))
+        return torch.Tensor([(np.pad(w[:pad]+1, (0, pad-len(w[:pad]+1)), mode='constant', constant_values=constant_values)) for w in arr]).long()
 
-        gru_out, hidden = self.gru(embs, hidden)
+    def join_word_tokens(self, last_ItemID_title, last_event_search, size = 50):
+        tensor_last_ItemID_title = self.add_pad_tensor(last_ItemID_title, size, WORD_PAD)
+        tensor_last_event_search = self.add_pad_tensor(last_event_search, size, WORD_PAD)
+        last_text_idx  = torch.cat([tensor_last_ItemID_title, tensor_last_event_search], 1)#.to(self.device)
+        mask_text      = (last_text_idx != WORD_PAD).float()
+
+        return last_text_idx, mask_text
+
+    def forward(self, session_ids, 
+                        item_ids, 
+                        item_history_ids, 
+                        domain_idx_history,
+                        time_history,
+                        last_ItemID_title,
+                        last_event_search,
+                        dense_features):
+
+        device     = item_ids.device
+        seq        = item_history_ids
+        
+        hidden     = self.init_hidden(seq.size(0)).to(device)
+        
+        # ItemID History
+        embs       = self.emb_dropout(self.emb(seq))
+        
+        # Domain History
+        emb_domain = self.emb_dropout(self.emb_domain(domain_idx_history))
+        
+        # Word Title + Search History
+        last_text_idx, mask_text = self.join_word_tokens(last_ItemID_title, last_event_search, 15)
+        word_emb   = self.emb_dropout(self.word_emb(last_text_idx.to(device)))
+
+        # Time Emb        
+        time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
+        
+        # Mask History
+        mask_hist  = (item_history_ids != 0).to(device).float()
+        mask_hist  = mask_hist.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+
+        embs       = (embs + time_emb)*mask_hist/2
+
+        # GRU
+        gru_out1, hidden = self.gru1(embs, hidden)
+        gru_out2, _ = self.gru2(emb_domain, hidden)
+        gru_out3, _ = self.gru3(word_emb, hidden)
 
         # fetch the last hidden state of last timestamp
-        ht      = hidden[-1]
-        gru_out = gru_out.permute(1, 0, 2)
+        ht          = hidden.permute(1, 0, 2)[:, -1] 
+        gru_out     = gru_out1 + gru_out2 + gru_out3#.permute(1, 0, 2)
 
-        c_global = ht
-        q1 = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
-        q2 = self.a_2(ht)
+        c_global    = ht
+        q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
+        q2          = self.a_2(ht)
 
-        mask      = torch.where(seq.permute(1, 0) > 0, torch.tensor([1.], device = device), 
-                        torch.tensor([0.], device = device))
+        mask        = torch.where(seq > 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
 
-        q2_expand = q2.unsqueeze(1).expand_as(q1)
-        q2_masked = mask.unsqueeze(2).expand_as(q1) * q2_expand
+        q2_expand   = q2.unsqueeze(1).expand_as(q1)
+        q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand
 
-        alpha   = self.v_t(torch.sigmoid(q1 + q2_masked)\
-                    .view(-1, self.hidden_size))\
-                    .view(mask.size())
-        c_local = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
-
-        c_t     = torch.cat([c_local, c_global], 1)
-        c_t     = self.ct_dropout(c_t)
+        alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
+        c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
+        
+        c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
+        c_t         = self.dense(self.ct_dropout(c_t))
         
         item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
 
         return scores
 
-    def recommendation_score(self, session_ids, item_ids, item_history_ids):
+    def recommendation_score(self, session_ids, 
+                                    item_ids, 
+                                    item_history_ids, 
+                                    domain_idx_history,
+                                    time_history,
+                                    last_ItemID_title,
+                                    last_event_search,
+                                    dense_features):
         
-        scores = self.forward(session_ids, item_ids, item_history_ids)
+        scores = self.forward(session_ids, 
+                                item_ids, 
+                                item_history_ids, 
+                                domain_idx_history,
+                                time_history,
+                                last_ItemID_title,
+                                last_event_search,
+                                dense_features)
+
         scores = scores[torch.arange(scores.size(0)),item_ids]
 
         return scores
@@ -1077,8 +1178,8 @@ class MLTransformerModel(RecommenderModule):
 
         self.item_emb = load_embedding(self._n_items, n_factors, path_item_embedding, 
                                                 from_index_mapping, index_mapping, freeze_embedding)
-        self.category_emb = nn.Embedding(len(self._index_mapping["category_id_history"]), n_factors)
-        self.domain_emb   = nn.Embedding(len(self._index_mapping["domain_id_history"]), n_factors)
+        self.category_emb = nn.Embedding(len(self._index_mapping["category_idx_history"]), n_factors)
+        self.domain_emb   = nn.Embedding(len(self._index_mapping["domain_idx_history"]), n_factors)
 
         # CharCNN
         vocabulary  = list("""abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}""")

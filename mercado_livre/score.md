@@ -9,34 +9,44 @@
 # Historico
 
 
-# SupervisedModelTraining____mars_gym_model_b____b92d68b8b7
+# SupervisedModelTraining____mars_gym_model_b____2ff0b99c0d_32c1432eff_sub
 
-Todos os dados e com sessão de view e buy no treinamento
-submission_SupervisedModelTraining____mars_gym_model_b____b92d68b8b7_831bd03858_sub
--> 'ML': 0.20489	
+Apenas buy
 
+-> 'ML': 0.23492	
 
-# SupervisedModelTraining____mars_gym_model_b____2f2f2de57c
+{
+    "model_task": "SupervisedModelTraining____mars_gym_model_b____2ff0b99c0d",
+    "count": 1870,
+    "mean_average_precision": 0.5127539920130239,
+    "precision_at_1": 0.4443850267379679,
+    "mrr_at_5": 0.4903565062388592,
+    "mrr_at_10": 0.5004483914778032,
+    "ndcg_at_5": 0.5358896178223215,
+    "ndcg_at_10": 0.5621532686566242,
+    "ndcg_at_15": 0.5764143386237068,
+    "ndcg_at_20": 0.584676081311685,
+    "ndcg_at_50": 0.6140391120052096,
+    "coverage_at_5": 0.12029999999999999,
+    "coverage_at_20": 0.3846
+}
 
-Apenas os dados de 30 dias e com sessão de view e buy no treinamento
-submission_SupervisedModelTraining____mars_gym_model_b____2f2f2de57c_96f794e191_sub
--> 'ndcg_at_10': 0.7134313311016469
--> 'ML': 0.20115966524646176
+# SupervisedModelTraining____mars_gym_model_b____1f6210ddd3_4e69a83073_sub
 
+Apenas buy and uso do history domain 
 
-# SupervisedModelTraining____mars_gym_model_b____c549ab3480
+-> ML: 0.23956
 
-APenas os dados de 30 dias e apenas as interacoes de buy (mudou o test-dataset pois 
-está usando apenas as interações de buy também)
-SupervisedModelTraining____mars_gym_model_b____c549ab3480_f2846c540c_sub
--> 'ndcg_at_10': 0.5477472675988672
--> 'ML': 0.164470
-
-
-# SupervisedModelTraining____mars_gym_model_b____31de201200
-
-APenas os dados de 30 dias e todas as interações de session (mudou o test-dataset pois 
-está usando apenas as interações de buy também)
-SupervisedModelTraining____mars_gym_model_b____31de201200_c6dbff6d5f_sub
--> 'ndcg_at_10': 0.696523562786302,
--> 'ML': 0.2011596
+ {'count': 1870,
+  'coverage_at_20': 0.4022,
+  'coverage_at_5': 0.1257,
+  'mean_average_precision': 0.5443134518114011,
+  'model_task': 'SupervisedModelTraining____mars_gym_model_b____1f6210ddd3',
+  'mrr_at_10': 0.5331156098803157,
+  'mrr_at_5': 0.5214795008912656,
+  'ndcg_at_10': 0.6042521766040143,
+  'ndcg_at_15': 0.6173788813539623,
+  'ndcg_at_20': 0.6271319979086323,
+  'ndcg_at_5': 0.5739731766883653,
+  'ndcg_at_50': 0.6520301006193968,
+  'precision_at_1': 0.46844919786096256}

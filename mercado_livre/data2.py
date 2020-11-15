@@ -286,7 +286,7 @@ class SessionPrepareDataset(luigi.Task):
 
     def add_more_information(self, df):
 
-        from IPython import embed; embed()
+        
             
         df['last_ItemID'] = df.groupby(by='SessionID')\
                               .apply(lambda df_g: df_g['ItemID'].shift(1), 

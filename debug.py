@@ -277,24 +277,57 @@ if __name__ == '__main__':
 
 
      
+  # job = SupervisedModelTraining(
+  #   project="mercado_livre.config.mercado_livre_transformer",
+  #   recommender_module_class="model.MLTransformerModel",
+  #   recommender_extra_params={
+  #     "n_factors": 100, 
+  #     "n_hid": 100,
+  #     "n_head": 1,
+  #     "n_layers": 1,
+  #     "num_filters": 50,
+  #     "dropout": 0.2,
+  #     "hist_size": 30,
+  #     "from_index_mapping": False,
+  #     "path_item_embedding": False, 
+  #     "freeze_embedding": False},
+  #   data_frames_preparation_extra_params={
+  #     "sample_days": 30, 
+  #     "history_window": 30, 
+  #     "column_stratification": "SessionID",
+  #     "filter_only_buy": True},
+  #   test_size= 0.1,
+  #   val_size= 0.1,      
+  #   test_split_type= "random",
+  #   dataset_split_method="column",
+  #   metrics=["loss"],
+  #   epochs=2,
+  #   batch_size=2,
+  #   loss_function="ce",
+  #   run_evaluate=True,
+  #   sample_size_eval=5000
+  # )      
+  
+
+     
   job = SupervisedModelTraining(
-    project="mercado_livre.config.mercado_livre_transformer",
-    recommender_module_class="model.MLTransformerModel",
+    project="mercado_livre.config.mercado_livre_narm",
+    recommender_module_class="model.MLNARMModel",
     recommender_extra_params={
       "n_factors": 100, 
-      "n_hid": 100,
-      "n_head": 1,
+      "hidden_size": 100,
       "n_layers": 1,
-      "num_filters": 50,
-      "dropout": 0.2,
-      "hist_size": 30,
+      "dense_size": 19,
+      "dropout": 0.5,
       "from_index_mapping": False,
-      "path_item_embedding": False, 
+      "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
       "freeze_embedding": False},
     data_frames_preparation_extra_params={
       "sample_days": 30, 
       "history_window": 30, 
       "column_stratification": "SessionID",
+      "normalize_dense_features": "min_max",
+      "min_interactions": 2,
       "filter_only_buy": True},
     test_size= 0.1,
     val_size= 0.1,      
