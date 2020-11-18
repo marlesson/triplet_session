@@ -1009,9 +1009,9 @@ class MLNARMModel(RecommenderModule):
         n_time_dim      = 100
 
         self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
-
+        #ItemID_history
         self.emb_domain = nn.Embedding(len(self._index_mapping["domain_idx_history"]), self.embedding_dim)
-        self.emb        = load_embedding(self._n_items, n_factors, False, 
+        self.emb        = load_embedding(len(self._index_mapping["ItemID_history"]), n_factors, False, 
                                                 from_index_mapping, index_mapping, False)
         self.time_emb   = TimeEmbedding(n_time_dim, n_factors)
 
@@ -1047,10 +1047,12 @@ class MLNARMModel(RecommenderModule):
             [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
 
 
-        output_dense_size =  2 * self.hidden_size + self.conv_size_out + dense_size
+        output_dense_size =  4 * self.hidden_size +   self.conv_size_out + dense_size
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
+            nn.Linear(output_dense_size, output_dense_size),
+            nn.ReLU(),
             nn.Linear(output_dense_size, output_dense_size)
         )
 
@@ -1073,10 +1075,10 @@ class MLNARMModel(RecommenderModule):
         return torch.Tensor([(np.pad(w[:pad], (0, pad-len(w[:pad])), mode='constant', constant_values=constant_values)) for w in arr]).long()
 
     def join_word_tokens(self, last_ItemID_title, last_event_search, size = 50):
-        tensor_last_ItemID_title = self.add_pad_tensor(last_ItemID_title, size, WORD_PAD)
-        tensor_last_event_search = self.add_pad_tensor(last_event_search, size, WORD_PAD)
+        #tensor_last_ItemID_title = self.add_pad_tensor(last_ItemID_title, size, WORD_PAD)
+        #tensor_last_event_search = self.add_pad_tensor(last_event_search, size, WORD_PAD)
         
-        last_text_idx  = torch.cat([tensor_last_ItemID_title, tensor_last_event_search], 1)#.to(self.device)
+        last_text_idx  = torch.cat([last_ItemID_title, last_event_search], 1)#.to(self.device)
         mask_text      = (last_text_idx != WORD_PAD).float()
 
         return last_text_idx, mask_text
@@ -1086,6 +1088,8 @@ class MLNARMModel(RecommenderModule):
                         item_history_ids, 
                         domain_idx_history,
                         time_history,
+                        last_ItemID,
+                        last_domain_idx,
                         last_ItemID_title,
                         last_event_search,
                         dense_features):
@@ -1095,6 +1099,10 @@ class MLNARMModel(RecommenderModule):
         
         hidden     = self.init_hidden(seq.size(0)).to(device)
         
+
+        emb_last_ItemID = self.emb(last_ItemID)
+        emb_last_domain = self.emb_domain(last_domain_idx)
+
         # ItemID History
         embs       = self.emb_dropout(self.emb(seq))
         
@@ -1119,7 +1127,7 @@ class MLNARMModel(RecommenderModule):
 
         # GRU
         gru_out1, hidden = self.gru1(embs, hidden)
-        gru_out2, _ = self.gru2(emb_domain, hidden)
+        gru_out2, _      = self.gru2(emb_domain, hidden)
         #gru_out3, hidden3 = self.gru3(word_emb, hidden)
 
         # fetch the last hidden state of last timestamp
@@ -1138,7 +1146,10 @@ class MLNARMModel(RecommenderModule):
         alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
         c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
         
-        c_t         = torch.cat([c_local, word_emb, c_global, dense_features.float()], 1)
+        c_t         = torch.cat([c_local, c_global, 
+                                emb_last_ItemID, emb_last_domain,
+                                word_emb, 
+                                dense_features.float()], 1)
         c_t         = self.dense(self.ct_dropout(c_t))
         
         item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
@@ -1151,6 +1162,8 @@ class MLNARMModel(RecommenderModule):
                                     item_history_ids, 
                                     domain_idx_history,
                                     time_history,
+                                    last_ItemID,
+                                    last_domain_idx,
                                     last_ItemID_title,
                                     last_event_search,
                                     dense_features):
@@ -1160,6 +1173,8 @@ class MLNARMModel(RecommenderModule):
                                 item_history_ids, 
                                 domain_idx_history,
                                 time_history,
+                                last_ItemID,
+                                last_domain_idx,
                                 last_ItemID_title,
                                 last_event_search,
                                 dense_features)

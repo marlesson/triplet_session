@@ -58,6 +58,7 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 tqdm.pandas()
 from scipy import stats
+import pickle
 
 OUTPUT_PATH: str = os.environ[
     "OUTPUT_PATH"
@@ -130,7 +131,7 @@ def word_tokenizer(text):
     #tokens    = [t for t in tokens if t not in stopwords]
 
     if len(tokens) == 0:
-        tokens.append("UNK") 
+        tokens.append("PAD") 
     
     return [WORD_MODEL.vocab[word].index if word in WORD_MODEL.wv else WORD_MODEL.vocab["UNK"].index for word in tokens]
 
@@ -145,8 +146,20 @@ udf_char_encode = F.udf(char_encode, ArrayType(IntegerType()))
 
 def pad_history(type):
     def _pad_history(arr, size, pad=-1):
+        if isinstance(arr, str):
+            arr = eval(arr)
+
         return list(reversed(([pad] * (size - len(arr[:-1][:size])) + arr[:-1])))[:size]
     return udf(_pad_history, ArrayType(type))
+
+def pad_history_norm(type):
+    def _pad_history(arr, size, pad=-1):
+        if isinstance(arr, str):
+            arr = eval(arr)
+
+        return list((arr + [pad] * (size - len(arr[:size]))))[:size]
+    return udf(_pad_history, ArrayType(type))
+
 
 def sample_items(item, item_list, size_available_list):
     return random.sample(item_list, size_available_list - 1) + [item]
@@ -169,7 +182,7 @@ def stat_float_hist(func):
         return float(func(arr))
     return udf(_stat_float_hist, FloatType())
 
-def moda_hist(arr, pad='0'):
+def moda_hist(arr, pad='-1'):
     arr = np.array(arr)
     arr = arr[arr != pad]
     if len(arr) == 0:
@@ -178,7 +191,7 @@ def moda_hist(arr, pad='0'):
     return str(stats.mode(arr)[0][0])
 udf_moda_hist = udf(moda_hist, StringType())
          
-def moda_count_hist(arr, pad='0'):
+def moda_count_hist(arr, pad='-1'):
     arr = np.array(arr)
     arr = arr[arr != pad]
     if len(arr) == 0:
@@ -240,7 +253,7 @@ class PreProcessSessionDataset(BasePySparkTask):
         df = df_view.union(df_buy)
         
         if DEBUG:
-            df = df.filter(df.session_id.isin(["42949685985", "68719477728", "94489310665"]))
+            df = df.filter(df.session_id.isin(["42949685985", "68719477728", "94489310665", "77309420244"]))
 
         df.orderBy(col('event_timestamp')).toPandas().to_csv(self.output().path, index=False)
 
@@ -249,6 +262,8 @@ class PreProcessSessionTestDataset(PreProcessSessionDataset):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_test_dataset.csv"))
     
     def get_path_dataset(self):
+        if DEBUG:
+            return BASE_DATASET_FILE    
         return BASE_TEST_DATASET_FILE
 
 ################################## Supervised ######################################
@@ -314,7 +329,7 @@ class TextDataProcess(BasePySparkTask):
         # Split event_info
         df = df.withColumn("event_search",
             when(df.event_type == "search", col("event_info")).
-            otherwise(" "))
+            otherwise(""))
 
         df = df.withColumn("event_view",
             when(df.event_type == "view", col("event_info")).
@@ -346,19 +361,19 @@ class TextDataProcess(BasePySparkTask):
         df_test = self.add_more_information(df_test)
         
         #Apply tokenizer 
-        int_pad_history = pad_history(IntegerType())
+        word_pad_history = pad_history_norm(IntegerType())
 
         ## Metadada
         text_column = "title"
-        df = df.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))
+        df = df.withColumn(text_column, udf_word_tokenizer(col(text_column)))
         pad_history
         ## Train
         text_column = "event_search"
-        df_train = df_train.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))        
+        df_train = df_train.withColumn(text_column, udf_word_tokenizer(col(text_column)))        
 
         ## Test
         text_column = "event_search"
-        df_test = df_test.withColumn(text_column, int_pad_history(udf_word_tokenizer(col(text_column)), lit(15), lit(WORD_PAD)))                
+        df_test = df_test.withColumn(text_column, udf_word_tokenizer(col(text_column)))                
 
         # Reindex
         df_category_id  = df.select("category_id").orderBy(col('category_id'))\
@@ -450,17 +465,22 @@ class SessionPrepareDataset(BasePySparkTask):
 
         # Add Last Item
         
-        df = df.withColumn("last_ItemID",       lag(df.ItemID, 1).over(w).cast("int"))
-        int_pad_history = pad_history(IntegerType())
-        df = df.withColumn("last_ItemID_title", int_pad_history(lag(df.title, 1).over(w), lit(15), lit(WORD_PAD)))
+        df = df.withColumn("last_ItemID", lag(df.ItemID, 1).over(w2).cast("int")).fillna(-1, subset=['last_ItemID'])
 
-        df = df.withColumn("last_event_search",     lag(df.event_search, 1).over(w))
+        word_pad_history = pad_history_norm(IntegerType())
+        df = df.withColumn("last_ItemID_title", lag(df.title, 1).over(w2)).fillna("[]", subset=['last_ItemID_title'])
+        df = df.withColumn("last_ItemID_title", word_pad_history(col("last_ItemID_title"), lit(15), lit(WORD_PAD)))
+
+        #w3 = Window.partitionBy(['SessionID', 'event_type_click']).orderBy(col('event_type_click').asc(), 'Timestamp')
+        df = df.withColumn("last_event_search",   lag(df.event_search, 1).over(w)).fillna("[]", subset=['last_event_search'])
+        df = df.withColumn("last_event_search",   word_pad_history(col("last_event_search"), lit(15), lit(WORD_PAD)))
         df = df.withColumn("last_event_type_idx",   lag(df.event_type_idx, 1).over(w))
 
         # Add step
         df = df.withColumn("step", lit(1))
         df = df.withColumn('step', F.sum('step').over(w))
-
+        df = df.filter(df.step > 1)
+        
         # Add Time diff and cum
         # https://medium.com/expedia-group-tech/deep-dive-into-apache-spark-datetime-functions-b66de737950a
         df = df.withColumn("previous_t", lag(df.Timestamp, 1).over(w))\
@@ -475,11 +495,11 @@ class SessionPrepareDataset(BasePySparkTask):
         summary =  df.filter(df.event_type_idx == ML_VIEW).select([mean('price').alias('mu'), stddev('price').alias('sigma')])\
                         .collect().pop()
         df = df.withColumn('price_norm', F.round((df['price']-summary.mu)/summary.sigma, 4))
-        df = df.withColumn('last_price_norm', F.round(lag(df.price_norm, 1).over(w2), 4))
+        df = df.withColumn('last_price_norm', F.round(lag(df.price_norm, 1).over(w2), 4)).fillna(0, subset=['last_price_norm'])      
         df = df.withColumn("diff_price_norm",  F.round(lag(col('price_norm'), 2).over(w2)-df.last_price_norm, 4))
 
         # Last Domain
-        df = df.withColumn("last_domain_idx", lag(df.domain_idx, 1).over(w2))
+        df = df.withColumn("last_domain_idx", lag(df.domain_idx, 1).over(w2).cast("int")).fillna(-1, subset=['last_domain_idx'])
         
         # Window Metrics Price
         w2 = Window.partitionBy(['SessionID', 'event_type_click']).orderBy('Timestamp').rowsBetween(Window.unboundedPreceding, -1)
@@ -503,69 +523,68 @@ class SessionPrepareDataset(BasePySparkTask):
         str_pad_history = pad_history(StringType())
         float_pad_history = pad_history(FloatType())
         
-
-        w  = Window.partitionBy(['SessionID', 'event_type_click']).orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
-        w2 = Window.partitionBy(['SessionID']).orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
+        w = Window.partitionBy(['SessionID']).orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
+        w2  = Window.partitionBy(['SessionID', 'event_type_click']).orderBy('Timestamp')#.rowsBetween(Window.unboundedPreceding, Window.currentRow)#.rangeBetween(Window.currentRow, 5)
         
         # History Step
 
         df = df.withColumn(
-            'step_history', F.collect_list('step').over(w)
+            'step_history', F.collect_list('step').over(w2)
         )
         df = df.withColumn('step_history', int_pad_history(df.step_history, lit(self.history_window)))
 
         # History Time
         df = df.withColumn(
-            'timestamp_history', F.collect_list('int_Timestamp').over(w)
+            'timestamp_history', F.collect_list('int_Timestamp').over(w2)
         )
         df = df.withColumn('timestamp_history', int_pad_history(df.timestamp_history, lit(self.history_window)))
 
         # History Time 2
         df = df.withColumn(
-            'cum_timestamp_history', F.collect_list('cum_Timestamp').over(w)
+            'cum_timestamp_history', F.collect_list('cum_Timestamp').over(w2)
         )
         df = df.withColumn('cum_timestamp_history', int_pad_history(df.cum_timestamp_history, lit(self.history_window)))
 
         # event_type_idx
         df = df.withColumn(
-            'event_type_idx_history', F.collect_list('event_type_idx').over(w2)
+            'event_type_idx_history', F.collect_list('event_type_idx').over(w)
         )
         df = df.withColumn('event_type_idx_history', str_pad_history(df.event_type_idx_history, lit(self.history_window)))
 
         # category_idx
         df = df.withColumn(
-            'category_idx_history', F.collect_list('category_idx').over(w)
+            'category_idx_history', F.collect_list('category_idx').over(w2)
         )
         df = df.withColumn('category_idx_history', str_pad_history(df.category_idx_history, lit(self.history_window)))
 
         # condition
         df = df.withColumn(
-            'condition_idx_history', F.collect_list('condition_idx').over(w)
+            'condition_idx_history', F.collect_list('condition_idx').over(w2)
         )
         df = df.withColumn('condition_idx_history', str_pad_history(df.condition_idx_history, lit(self.history_window)))
 
         # domain_id
         df = df.withColumn(
-            'domain_idx_history', F.collect_list('domain_idx').over(w)
+            'domain_idx_history', F.collect_list('domain_idx').over(w2)
         )
         df = df.withColumn('domain_idx_history', str_pad_history(df.domain_idx_history, lit(self.history_window)))
 
         # product_id
         df = df.withColumn(
-            'product_id_history', F.collect_list('product_id').over(w)
+            'product_id_history', F.collect_list('product_id').over(w2)
         )
         df = df.withColumn('product_id_history', str_pad_history(df.product_id_history, lit(self.history_window)))
 
         # price
         df = df.withColumn(
-            'price_history', F.collect_list(F.round(col('price_norm'), 4)).over(w)
+            'price_history', F.collect_list(F.round(col('price_norm'), 4)).over(w2)
         )
         df = df.withColumn('price_history', float_pad_history(df.price_history, lit(self.history_window), lit(0.0)))
 
         # History Item
         df = df.withColumn(
-            'ItemID_history', F.collect_list('ItemID').over(w)
-        ).where(size(col("ItemID_history")) >= self.min_session_size)#\
+            'ItemID_history', F.collect_list('ItemID').over(w2)
+        )#\
 
         df = df.withColumn('ItemID_history', int_pad_history(df.ItemID_history, lit(self.history_window)))
 
@@ -689,7 +708,7 @@ class SessionPrepareDataset(BasePySparkTask):
 
         if not self.no_filter_data:
             # Drop duplicate item in that same session
-            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
+            #df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
             df = df.dropDuplicates(['SessionID', 'Timestamp', 'event_type_idx']) 
             
             # Filter 
@@ -720,6 +739,10 @@ class SessionPrepareDataset(BasePySparkTask):
 
         if self.no_filter_data:
             df = df.filter(df.event_type_idx == ML_BUY) #buy
+        
+        if not self.no_filter_data:
+            # Drop duplicate item in that same session
+            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
 
         # vectorize dense features
         #df = self.vectorize_dense(df)
@@ -791,7 +814,8 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     filter_only_buy: bool = luigi.BoolParameter(default=False)
     min_interactions: int = luigi.IntParameter(default=5)
     min_session_size: int = luigi.IntParameter(default=2)
-    normalize_dense_features: int = luigi.Parameter(default="min_max")
+    normalize_dense_features: str = luigi.Parameter(default="min_max")
+    normalize_file_path: str = luigi.Parameter(default=None)
 
 
     def requires(self):
@@ -817,9 +841,20 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     def read_data_frame_path(self) -> pd.DataFrame:
         return self.input()[1].path
 
+    @property
+    def task_name(self):
+        return self.task_id.split("_")[-1]
+
+    @property
+    def scaler_file_path(self):
+        if self.normalize_file_path != None:
+            return DATASET_DIR+'/'+self.normalize_file_path
+        return DATASET_DIR+'/{}_std_scaler.pkl'.format(self.task_name)
+
     def transform_all(self, df):
         # Cast List()
-        columns = ["step_history",                           
+        columns = [ "last_ItemID_title",
+                    "step_history",                           
                     "timestamp_history",                      
                     "cum_timestamp_history",                  
                     "event_type_idx_history",                 
@@ -864,6 +899,9 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
                 self.scaler = MinMaxScaler()
 
             self.scaler.fit(df[columns_vectorize_dense])
+            pickle.dump(self.scaler, open(self.scaler_file_path,'wb'))
+
+        self.scaler = pickle.load(open(self.scaler_file_path,'rb'))
 
         df[columns_vectorize_dense] = self.scaler.transform(df[columns_vectorize_dense]).round(3)
         df['dense_features'] = list(np.around(df[columns_vectorize_dense].values, 3))
@@ -880,7 +918,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         self.transform_all(df)
         self.build_dense_features(df, data_key)
 
-        if self.filter_only_buy or data_key == 'TEST_GENERATOR': 
+        if (self.filter_only_buy or data_key == 'TEST_GENERATOR') and not DEBUG: 
             df = df[df['event_type_idx'] == ML_BUY] # buy
 
         return df

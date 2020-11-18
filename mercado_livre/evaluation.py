@@ -55,8 +55,9 @@ class MLEvaluationTask(BaseEvaluationTask):
     pin_memory: bool = luigi.BoolParameter(default=False)
     batch_size: int = luigi.IntParameter(default=100)
     device: str = luigi.ChoiceParameter(choices=["cpu", "cuda"], default="cuda")
-    history_window: int = luigi.IntParameter(default=10)
+    history_window: int = luigi.IntParameter(default=30)
     normalize_dense_features: int = luigi.Parameter(default="min_max")
+    normalize_file_path: str = luigi.Parameter(default=None)
 
     @property
     def task_name(self):
@@ -109,35 +110,40 @@ class MLEvaluationTask(BaseEvaluationTask):
 
         data = SessionInteractionDataFrame(
                 item_column="",
-                normalize_dense_features=self.normalize_dense_features)
+                normalize_dense_features=self.normalize_dense_features,
+                normalize_file_path=self.normalize_file_path)
         
-        data.transform_data_frame(df, "TRAIN_DATA")
+        data.transform_data_frame(df, "TEST_GENERATOR")
         df.to_csv(self.output().path+"/dataset.csv")
+
 
         # Index test dataset 
         df['Index'] = df['SessionID']
         print(df.head())
 
+
+        # Gente Model
+        model = self.model_training.get_trained_module()
+        model.to(self.torch_device)
+        model.eval()
+
         df = preprocess_interactions_data_frame(
             df, 
             self.model_training.project_config
         )
+
         transform_with_indexing(
             df, 
             self.model_training.index_mapping, 
             self.model_training.project_config
         )
+
         df = df.sort_values("Index")
         df.to_csv(self.output().path+"/dataset_indexed.csv")
         print(df.head())
         print(df.shape)
         
         generator = self.get_test_generator(df)
-
-        # Gente Model
-        model = self.model_training.get_trained_module()
-        model.to(self.torch_device)
-        model.eval()
 
         scores = []
         rank_list = []
