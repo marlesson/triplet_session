@@ -109,7 +109,7 @@ mercado_livre_narm3 = ProjectConfig(
     prepare_data_frames_task=data.SessionInteractionDataFrame,
     dataset_class=dataset.InteractionsDataset,
     user_column=Column("SessionID", IOType.INDEXABLE),
-    item_column=Column("ItemID", IOType.INDEXABLE),
+    item_column=Column("ItemID", IOType.INDEXABLE, same_index_as="ItemID_history"),
     timestamp_column_name="Timestamp",
     available_arms_column_name="",
     other_input_columns=[

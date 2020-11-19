@@ -1007,47 +1007,32 @@ class MLNARMModel(RecommenderModule):
         self.n_layers = n_layers
         self.embedding_dim = n_factors
         n_time_dim      = 100
+        self.n_item_dim      = self.index_mapping_max_value('ItemID_history')
+        n_domain_dim    = self.index_mapping_max_value('domain_idx_history')
 
         self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
-        #ItemID_history
-        self.emb_domain = nn.Embedding(len(self._index_mapping["domain_idx_history"]), self.embedding_dim)
-        self.emb        = load_embedding(len(self._index_mapping["ItemID_history"]), n_factors, False, 
-                                                from_index_mapping, index_mapping, False)
+
+        self.emb_domain = nn.Embedding(n_domain_dim, self.embedding_dim)
+        self.emb        = load_embedding(self.n_item_dim, n_factors, False,  from_index_mapping, index_mapping, False)
         self.time_emb   = TimeEmbedding(n_time_dim, n_factors)
 
         self.emb_dropout = nn.Dropout(dropout)
         self.gru1 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)
         self.gru2 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)
-        self.gru3 = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers, batch_first=True)        
 
         self.a_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.a_2 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
         self.ct_dropout = nn.Dropout(dropout)
 
-
-        # self.attention_layernorms   = torch.nn.ModuleList() # to be Q for self-attention
-        # self.attention_layers       = torch.nn.ModuleList()
-        # self.last_layernorm         = torch.nn.LayerNorm(n_factors, eps=1e-8)
-        
-        # num_blocks = 1
-        # num_heads  = 1
-
-        # for _ in range(num_blocks):
-        #     self.attention_layernorms.append(
-        #             torch.nn.LayerNorm(n_factors, eps=1e-8))
-        #     self.attention_layers.append(
-        #             torch.nn.MultiheadAttention(n_factors, num_heads,dropout))
-
-        self.num_filters = 32
+        self.num_filters   = 32
         self.filter_sizes: List[int] = [1, 3, 5]
-        self.conv_size_out = len(self.filter_sizes) * self.num_filters
+        conv_size_out = len(self.filter_sizes) * self.num_filters
 
         self.convs1 = nn.ModuleList(
             [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
 
-
-        output_dense_size =  4 * self.hidden_size +   self.conv_size_out + dense_size
+        output_dense_size =  4 * self.hidden_size +  conv_size_out + dense_size
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
@@ -1058,6 +1043,9 @@ class MLNARMModel(RecommenderModule):
 
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    def index_mapping_max_value(self, key: str) -> int:
+        return max(self._index_mapping[key].values())+1
 
     def conv_block(self, x):
 	# conv_out.size() = (batch_size, out_channels, dim, 1)
@@ -1147,12 +1135,13 @@ class MLNARMModel(RecommenderModule):
         c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
         
         c_t         = torch.cat([c_local, c_global, 
-                                emb_last_ItemID, emb_last_domain,
-                                word_emb, 
-                                dense_features.float()], 1)
+                             emb_last_ItemID, emb_last_domain,
+                             word_emb, 
+                             dense_features.float()], 1)
+        #c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
         c_t         = self.dense(self.ct_dropout(c_t))
         
-        item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
+        item_embs   = self.emb(torch.arange(self.n_item_dim).to(device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
 
         return scores

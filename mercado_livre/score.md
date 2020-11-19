@@ -137,3 +137,22 @@ Treinado apenas com buy. Ajuste em todo pipeline, correções.
  'precision_at_1': 0.4722075172048703}
 
 -> ML: 0.1948
+
+
+# SupervisedModelTraining____mars_gym_model_b____b8d4996188
+
+ML:  0.18399
+
+{'count': 1876,
+ 'coverage_at_20': 0.1954,
+ 'coverage_at_5': 0.0567,
+ 'mean_average_precision': 0.5631568962608224,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____b8d4996188',
+ 'mrr_at_10': 0.5520712762717027,
+ 'mrr_at_5': 0.5374733475479744,
+ 'ndcg_at_10': 0.6591314029973595,
+ 'ndcg_at_15': 0.6775182279291796,
+ 'ndcg_at_20': 0.6888021048555724,
+ 'ndcg_at_5': 0.6215979154703808,
+ 'ndcg_at_50': 0.7067737012714879,
+ 'precision_at_1': 0.4525586353944563}

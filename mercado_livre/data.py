@@ -252,8 +252,8 @@ class PreProcessSessionDataset(BasePySparkTask):
 
         df = df_view.union(df_buy)
         
-        if DEBUG:
-            df = df.filter(df.session_id.isin(["42949685985", "68719477728", "94489310665", "77309420244"]))
+        if DEBUG: # 68719488980
+            df = df.filter(df.session_id.isin(["42949685985", "68719488980", "94489310665", "77309420244"]))
 
         df.orderBy(col('event_timestamp')).toPandas().to_csv(self.output().path, index=False)
 
@@ -705,10 +705,10 @@ class SessionPrepareDataset(BasePySparkTask):
                     .select("SessionID", "ItemID", "Timestamp", 
                             "event_type_idx", "event_search", "domain_count")#.sample(fraction=0.01)#.limit(1000)
 
-
+        df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
+            
         if not self.no_filter_data:
             # Drop duplicate item in that same session
-            #df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
             df = df.dropDuplicates(['SessionID', 'Timestamp', 'event_type_idx']) 
             
             # Filter 
@@ -740,9 +740,9 @@ class SessionPrepareDataset(BasePySparkTask):
         if self.no_filter_data:
             df = df.filter(df.event_type_idx == ML_BUY) #buy
         
-        if not self.no_filter_data:
+        #if not self.no_filter_data:
             # Drop duplicate item in that same session
-            df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
+        #    df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
 
         # vectorize dense features
         #df = self.vectorize_dense(df)
