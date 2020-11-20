@@ -1105,8 +1105,11 @@ class MLNARMModel(RecommenderModule):
         word_emb   = self.conv_block(word_emb)
 
         # Mask History
-        mask_hist_idx  = (item_history_ids != PAD).to(device).float()
-        mask_hist      = mask_hist_idx.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+        # mask_hist_idx  = (item_history_ids != PAD).to(device).float()
+        mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        mask        = mask * torch.where(seq != 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+
+        mask_hist      = mask.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
         embs           = embs * mask_hist
 
         # Time Emb        
@@ -1127,7 +1130,9 @@ class MLNARMModel(RecommenderModule):
         q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
         q2          = self.a_2(ht)
 
-        mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        #mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        #mask2       = torch.where(seq != 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        #mask        *= mask2
 
         q2_expand   = q2.unsqueeze(1).expand_as(q1)
         q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand

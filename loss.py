@@ -243,3 +243,23 @@ class RelativeTripletLoss(_Loss):
             return loss.mean()
         else:
             return loss.sum()
+
+class CustomCrossEntropyLoss(_Loss):
+    def __init__(self, weight = None, 
+                       size_average=None, ignore_index: int = -100, 
+                       reduce=None, 
+                       reduction: str = 'mean'):
+        
+        super().__init__(size_average, reduce, reduction)
+        
+        self.reduction = reduction
+        self.loss = nn.CrossEntropyLoss(reduction=False)
+
+    def forward(self, input, target):
+        _loss = self.loss(input, target)
+        
+        if self.reduction == "mean":
+            return _loss.mean()
+        else:
+            return _loss.sum()
+        

@@ -109,7 +109,7 @@ mars-gym run supervised \
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____56c475908e \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____bb62b9bb7b \
 --normalize-file-path "4956728137_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -117,16 +117,17 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --file "/media/workspace/triplet_session/output/mercado_livre/dataset/test_0.10_test=random_42_SessionInteractionDataFrame_____SessionID_4956728137.csv"
 
 # {'count': 1000,
-#  'mean_average_precision': 0.2090595238095238,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____beec81f53a',
-#  'mrr_at_10': 0.2090595238095238,
-#  'mrr_at_5': 0.20761666666666667,
-#  'ndcg_at_10': 0.23962853236489454,
-#  'ndcg_at_15': 0.23962853236489454,
-#  'ndcg_at_20': 0.23962853236489454,
-#  'ndcg_at_5': 0.23570265441986954,
-#  'ndcg_at_50': 0.23962853236489454,
-#  'precision_at_1': 0.179}
+#  'mean_average_precision': 0.21102738095238094,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____bb62b9bb7b',
+#  'mrr_at_10': 0.21102738095238094,
+#  'mrr_at_5': 0.20868333333333333,
+#  'ndcg_at_10': 0.2410719090590053,
+#  'ndcg_at_15': 0.2410719090590053,
+#  'ndcg_at_20': 0.2410719090590053,
+#  'ndcg_at_5': 0.23477969499207788,
+#  'ndcg_at_50': 0.2410719090590053,
+#  'precision_at_1': 0.182}
+
 
 Com a mascara
 
@@ -145,71 +146,20 @@ Com a mascara
 
 #### Other
 
-
-mars-gym run supervised \
---project mercado_livre.config.mercado_livre_transformer \
---recommender-module-class model.MLTransformerModel \
+PYTHONPATH="."  luigi  \
+--module train MercadoLivreTraining  \
+--project mercado_livre.config.mercado_livre_narm \
+--local-scheduler  \
+--recommender-module-class model.MLNARMModel \
 --recommender-extra-params '{
   "n_factors": 100, 
-  "n_hid": 50,
-  "n_head": 2,
-  "n_layers": 1,
-  "num_filters": 100,
-  "dropout": 0.2, 
-  "hist_size": 20, 
-  "from_index_mapping": false,
-  "path_item_embedding": false, 
-  "freeze_embedding": false}' \
---data-frames-preparation-extra-params '{
-  "sample_days": 30, 
-  "history_window": 20, 
-  "column_stratification": "SessionID",
-  "normalize_dense_features": "min_max",
-  "min_interactions": 2,
-  "filter_only_buy": true}' \
---test-size 0.1 \
---val-size 0.1 \
---early-stopping-min-delta 0.001 \
---optimizer-params '{"weight_decay": 1e-6}' \
---optimizer radam \
---test-split-type random \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss"]' \
---generator-workers 10  \
---batch-size 512 \
---loss-function ce \
---epochs 1000 \
---run-evaluate  \
---run-evaluate-extra-params " " \
---sample-size-eval 5 --obs ""
-
-
-PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
---model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____bcc72a076e \
---normalize-file-path "4956728137_std_scaler.pkl" \
---history-window 20 \
---batch-size 1000 \
---local-scheduler \
---file "/media/workspace/triplet_session/output/mercado_livre/dataset/test_0.10_test=random_42_SessionInteractionDataFrame_____SessionID_4956728137.csv"
-
-
-
-mars-gym run supervised \
---project mercado_livre.config.mercado_livre_rnn \
---recommender-module-class model.MLCaser \
---recommender-extra-params '{
-  "n_factors": 100, 
-  "p_L": 20, 
-  "p_d": 50, 
-  "p_nh": 4,
-  "p_nv": 4,  
+  "hidden_size": 100, 
+  "dense_size": 19,
+  "n_layers": 1, 
   "dropout": 0.5, 
-  "hist_size": 20, 
   "from_index_mapping": false,
-  "path_item_embedding": false, 
-  "freeze_embedding": false}' \
+  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "freeze_embedding": true}' \
 --data-frames-preparation-extra-params '{
   "sample_days": 30, 
   "history_window": 20, 
@@ -226,18 +176,8 @@ mars-gym run supervised \
 --metrics='["loss"]' \
 --generator-workers 10  \
 --batch-size 512 \
---loss-function ce \
+--loss-function custom_ce \
 --epochs 100 \
 --run-evaluate  \
 --run-evaluate-extra-params " " \
 --sample-size-eval 5 --obs ""
-
-
-PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
---model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____bcc72a076e \
---normalize-file-path "4956728137_std_scaler.pkl" \
---history-window 20 \
---batch-size 1000 \
---local-scheduler \
---file "/media/workspace/triplet_session/output/mercado_livre/dataset/test_0.10_test=random_42_SessionInteractionDataFrame_____SessionID_4956728137.csv"

@@ -1,6 +1,6 @@
 
 from mars_gym.simulation.training import SupervisedModelTraining, DummyTraining
-from loss import RelativeTripletLoss, ContrastiveLoss
+from loss import RelativeTripletLoss, ContrastiveLoss, CustomCrossEntropyLoss
 import torch
 import torch.nn as nn
 import luigi
@@ -39,6 +39,8 @@ TORCH_LOSS_FUNCTIONS = dict(
     mse=nn.MSELoss,
     nll=nn.NLLLoss,
     bce=nn.BCELoss,
+    ce=nn.CrossEntropyLoss,
+    custom_ce=CustomCrossEntropyLoss,
     mlm=nn.MultiLabelMarginLoss,
     relative_triplet=RelativeTripletLoss,    
     contrastive_loss=ContrastiveLoss,
@@ -291,4 +293,5 @@ class TripletTraining(SupervisedModelTraining):
     def _get_loss_function(self):
         return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)
 
- 
+class MercadoLivreTraining(SupervisedModelTraining):
+    loss_function:  str = luigi.ChoiceParameter(choices=["ce", "custom_ce"], default="ce")
