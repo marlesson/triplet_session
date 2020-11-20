@@ -41,7 +41,7 @@ PYTHONPATH="."  luigi  \
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_rnn \
---recommender-module-class model.MLNARMModel \
+--recommender-module-class model.NARMModel \
 --recommender-extra-params '{
   "n_factors": 100, 
   "hidden_size": 100, 

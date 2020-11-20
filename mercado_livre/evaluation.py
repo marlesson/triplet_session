@@ -358,6 +358,3 @@ class EvaluationSubmission(luigi.Task):
         ) as metrics_file:
             json.dump(metrics, metrics_file, cls=JsonEncoder, indent=4)
 
-
-        from IPython import embed; embed()            
-      

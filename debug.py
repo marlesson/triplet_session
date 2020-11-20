@@ -324,7 +324,7 @@ if __name__ == '__main__':
       "freeze_embedding": False},
     data_frames_preparation_extra_params={
       "sample_days": 30, 
-      "history_window": 30, 
+      "history_window": 20, 
       "column_stratification": "SessionID",
       "normalize_dense_features": "min_max",
       "min_interactions": 2,

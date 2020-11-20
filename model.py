@@ -983,6 +983,8 @@ class TripletNet(RecommenderModule):
 
 
 ## Mercado Livre
+PAD = 2
+UNK = 0
 
 class MLNARMModel(RecommenderModule):
     '''
@@ -1032,13 +1034,12 @@ class MLNARMModel(RecommenderModule):
         self.convs1 = nn.ModuleList(
             [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
 
-        output_dense_size =  4 * self.hidden_size +  conv_size_out + dense_size
+        #output_dense_size =  4 * self.hidden_size +  conv_size_out + dense_size
+        output_dense_size =  4 * self.hidden_size + conv_size_out + dense_size
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
             nn.Linear(output_dense_size, output_dense_size),
-            nn.ReLU(),
-            nn.Linear(output_dense_size, output_dense_size)
         )
 
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
@@ -1087,7 +1088,6 @@ class MLNARMModel(RecommenderModule):
         
         hidden     = self.init_hidden(seq.size(0)).to(device)
         
-
         emb_last_ItemID = self.emb(last_ItemID)
         emb_last_domain = self.emb_domain(last_domain_idx)
 
@@ -1104,29 +1104,30 @@ class MLNARMModel(RecommenderModule):
         word_emb   = word_emb * mask_text
         word_emb   = self.conv_block(word_emb)
 
-        # Time Emb        
-        time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
-        
         # Mask History
-        mask_hist  = (item_history_ids != 0).to(device).float()
-        mask_hist  = mask_hist.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+        mask_hist_idx  = (item_history_ids != PAD).to(device).float()
+        mask_hist      = mask_hist_idx.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+        embs           = embs * mask_hist
 
-        embs       = (embs + time_emb)*mask_hist/2
+        # Time Emb        
+        #time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
+
+        #embs       = (embs + time_emb)*mask_hist/2
 
         # GRU
         gru_out1, hidden = self.gru1(embs, hidden)
-        gru_out2, _      = self.gru2(emb_domain, hidden)
+        #gru_out2, _      = self.gru2(emb_domain, hidden)
         #gru_out3, hidden3 = self.gru3(word_emb, hidden)
 
         # fetch the last hidden state of last timestamp
         ht          = hidden.permute(1, 0, 2)[:, -1] 
-        gru_out     = gru_out1 + gru_out2# + gru_out3#.permute(1, 0, 2)
+        gru_out     = gru_out1 # + gru_out2# + gru_out3#.permute(1, 0, 2)
 
         c_global    = ht
         q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
         q2          = self.a_2(ht)
 
-        mask        = torch.where(seq > 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
 
         q2_expand   = q2.unsqueeze(1).expand_as(q1)
         q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand
@@ -1134,12 +1135,16 @@ class MLNARMModel(RecommenderModule):
         alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
         c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
         
+        #c_t     = torch.cat([c_local, c_global, word_emb, dense_features.float()], 1)
         c_t         = torch.cat([c_local, c_global, 
-                             emb_last_ItemID, emb_last_domain,
-                             word_emb, 
-                             dense_features.float()], 1)
+                                emb_last_ItemID, 
+                                emb_last_domain,
+                                word_emb, 
+                                dense_features.float()], 1)
+        c_t     = self.ct_dropout(c_t)        
+
         #c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
-        c_t         = self.dense(self.ct_dropout(c_t))
+        #c_t         = self.dense(self.ct_dropout(c_t))
         
         item_embs   = self.emb(torch.arange(self.n_item_dim).to(device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
@@ -1249,7 +1254,7 @@ class MLTransformerModel(RecommenderModule):
             nn.Linear(n_factors, n_factors)
         )
 
-        input_dense = n_factors * hist_size + n_factors + n_factors
+        input_dense = n_factors * hist_size + n_factors
         self.dense = nn.Sequential(
             nn.BatchNorm1d(input_dense),
             nn.Linear(input_dense, n_factors),
@@ -1325,8 +1330,8 @@ class MLTransformerModel(RecommenderModule):
                                 dropout=self.dropout_fac if self.training else 0)
 
         # Char Emb - Last Event Search
-        emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
-        emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
+        #emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
+        #emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
 
 
         #embedded_dropout(self.item_emb, item_history_ids, self.dropout_fac)
@@ -1359,7 +1364,6 @@ class MLTransformerModel(RecommenderModule):
         last_item   = item_hist_emb[:,0]
 
         join        = torch.cat([self.d2(last_item), 
-                                self.d1(emb_search), 
                                 self.flatten(hist_conv)], 1)
 
         pred_emb    = self.dense(join) # (B, E)
@@ -1557,8 +1561,8 @@ class MLTransformerModel2(RecommenderModule):
         #                               torch.ones(price_history.shape).to(item_history_ids.device).unsqueeze(2).float()
         #
 
-        emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
-        emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
+        #emb_search  = self.voc_emb(self.add_pad_tensor(last_event_search, self.char_window).to(item_history_ids.device))
+        #emb_search  = self.char_cnn(emb_search.permute(0,2,1)).view(emb_search.size(0), -1)
 
         # Mask history
         mask_hist   = (item_history_ids != 0).to(item_history_ids.device).float()
