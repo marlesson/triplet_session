@@ -295,3 +295,6 @@ class TripletTraining(SupervisedModelTraining):
 
 class MercadoLivreTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["ce", "custom_ce"], default="ce")
+
+    def _get_loss_function(self):
+        return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)

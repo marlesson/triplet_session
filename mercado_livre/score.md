@@ -9,20 +9,20 @@
 # Historico
 
 
-# SupervisedModelTraining____mars_gym_model_b____beec81f53a
+# SupervisedModelTraining____mars_gym_model_b____6feebc937f
 
-filter_only_buy: true
 
--> 'ML': 0.1929	
+
+ML: 0.19600
 
 {'count': 1000,
- 'mean_average_precision': 0.2090595238095238,
- 'model_task': 'SupervisedModelTraining____mars_gym_model_b____beec81f53a',
- 'mrr_at_10': 0.2090595238095238,
- 'mrr_at_5': 0.20761666666666667,
- 'ndcg_at_10': 0.23962853236489454,
- 'ndcg_at_15': 0.23962853236489454,
- 'ndcg_at_20': 0.23962853236489454,
- 'ndcg_at_5': 0.23570265441986954,
- 'ndcg_at_50': 0.23962853236489454,
- 'precision_at_1': 0.179}
+ 'mean_average_precision': 0.22327738095238095,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____6feebc937f',
+ 'mrr_at_10': 0.22327738095238095,
+ 'mrr_at_5': 0.22025,
+ 'ndcg_at_10': 0.25952636823013436,
+ 'ndcg_at_15': 0.25952636823013436,
+ 'ndcg_at_20': 0.25952636823013436,
+ 'ndcg_at_5': 0.2520101183546532,
+ 'ndcg_at_50': 0.25952636823013436,
+ 'precision_at_1': 0.188}

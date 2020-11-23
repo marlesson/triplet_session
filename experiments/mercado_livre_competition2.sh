@@ -71,16 +71,18 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 #  'ndcg_at_50': 0.2203986655840672,
 #  'precision_at_1': 0.163}
 
+###   ML NARM
+
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_narm \
 --recommender-module-class model.MLNARMModel \
 --recommender-extra-params '{
   "n_factors": 100, 
-  "hidden_size": 100, 
+  "hidden_size": 200, 
   "dense_size": 19,
   "n_layers": 1, 
-  "dropout": 0.5, 
+  "dropout": 0.2, 
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -91,7 +93,7 @@ mars-gym run supervised \
   "normalize_dense_features": "min_max",
   "min_interactions": 2,
   "filter_only_buy": true}' \
---test-size 0.1 \
+--test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
 --test-split-type random \
@@ -102,53 +104,41 @@ mars-gym run supervised \
 --batch-size 512 \
 --loss-function ce \
 --epochs 100 \
---run-evaluate  \
---run-evaluate-extra-params " " \
---sample-size-eval 5 --obs ""
+--obs ""
+
+SupervisedModelTraining____mars_gym_model_b____e6d8d44f38
 
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____bb62b9bb7b \
---normalize-file-path "4956728137_std_scaler.pkl" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____5d5ef06c6a \
+--normalize-file-path "7c7b77b344_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
 --local-scheduler \
---file "/media/workspace/triplet_session/output/mercado_livre/dataset/test_0.10_test=random_42_SessionInteractionDataFrame_____SessionID_4956728137.csv"
+--local 
 
 # {'count': 1000,
-#  'mean_average_precision': 0.21102738095238094,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____bb62b9bb7b',
-#  'mrr_at_10': 0.21102738095238094,
-#  'mrr_at_5': 0.20868333333333333,
-#  'ndcg_at_10': 0.2410719090590053,
-#  'ndcg_at_15': 0.2410719090590053,
-#  'ndcg_at_20': 0.2410719090590053,
-#  'ndcg_at_5': 0.23477969499207788,
-#  'ndcg_at_50': 0.2410719090590053,
-#  'precision_at_1': 0.182}
+#  'mean_average_precision': 0.2334162698412698,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____5d5ef06c6a',
+#  'mrr_at_10': 0.2334162698412698,
+#  'mrr_at_5': 0.23139999999999997,
+#  'ndcg_at_10': 0.2626176478983546,
+#  'ndcg_at_15': 0.2626176478983546,
+#  'ndcg_at_20': 0.2626176478983546,
+#  'ndcg_at_5': 0.25726426073151437,
+#  'ndcg_at_50': 0.2626176478983546,
+#  'precision_at_1': 0.205}
 
 
-Com a mascara
 
-# {'count': 1000,
-#  'mean_average_precision': 0.2081757936507936,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____56c475908e',
-#  'mrr_at_10': 0.2081757936507936,
-#  'mrr_at_5': 0.20645,
-#  'ndcg_at_10': 0.23868854316208246,
-#  'ndcg_at_15': 0.23868854316208246,
-#  'ndcg_at_20': 0.23868854316208246,
-#  'ndcg_at_5': 0.23422637343415534,
-#  'ndcg_at_50': 0.23868854316208246,
-#  'precision_at_1': 0.178}
 
 
 #### Other
 
 PYTHONPATH="."  luigi  \
 --module train MercadoLivreTraining  \
---project mercado_livre.config.mercado_livre_narm \
+--project mercado_livre.config.mercado_livre_narm_custom \
 --local-scheduler  \
 --recommender-module-class model.MLNARMModel \
 --recommender-extra-params '{
@@ -156,7 +146,7 @@ PYTHONPATH="."  luigi  \
   "hidden_size": 100, 
   "dense_size": 19,
   "n_layers": 1, 
-  "dropout": 0.5, 
+  "dropout": 0.2, 
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -167,7 +157,7 @@ PYTHONPATH="."  luigi  \
   "normalize_dense_features": "min_max",
   "min_interactions": 2,
   "filter_only_buy": true}' \
---test-size 0.1 \
+--test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
 --test-split-type random \
@@ -177,7 +167,16 @@ PYTHONPATH="."  luigi  \
 --generator-workers 10  \
 --batch-size 512 \
 --loss-function custom_ce \
+--loss-function-params '{"c": 1}'  \
 --epochs 100 \
---run-evaluate  \
---run-evaluate-extra-params " " \
---sample-size-eval 5 --obs ""
+--obs ""
+
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "train.MercadoLivreTraining" \
+--model-task-id MercadoLivreTraining____mars_gym_model_b____37fc206071 \
+--normalize-file-path "4956728137_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--local-scheduler \
+--file "/media/workspace/triplet_session/output/mercado_livre/dataset/test_0.10_test=random_42_SessionInteractionDataFrame_____SessionID_4956728137.csv"

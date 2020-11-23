@@ -26,16 +26,15 @@ import copy
 from torch.autograd import Variable
 import gensim
 
-WORD_PAD  = 18755
-WORD_UNK  = 18754
-WORD_DICT = 18756
+WORD_UNK  = 18751
+WORD_PAD  = 18752
+WORD_DICT = 18753
 #---------------------------------- AUX --------------------
 
 def load_wordvec(n_factors, path, freeze_embedding):
     if path:
         model  = gensim.models.KeyedVectors.load_word2vec_format(path, binary=True)
         model.add(['UNK', 'PAD'], [np.random.random(100), np.random.random(100)])
-
         embs   = nn.Embedding.from_pretrained(torch.from_numpy(model.wv.syn0).float(), freeze=freeze_embedding)
     else:
         embs = nn.Embedding(WORD_DICT, n_factors)
@@ -1009,6 +1008,7 @@ class MLNARMModel(RecommenderModule):
         self.n_layers = n_layers
         self.embedding_dim = n_factors
         n_time_dim      = 100
+        n_word_factors  = 100
         self.n_item_dim      = self.index_mapping_max_value('ItemID_history')
         n_domain_dim    = self.index_mapping_max_value('domain_idx_history')
 
@@ -1027,15 +1027,22 @@ class MLNARMModel(RecommenderModule):
         self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
         self.ct_dropout = nn.Dropout(dropout)
 
+        n_head = 2
+        n_hid = 100
+        n_layers = 1
+        self.pos_encoder    = PositionalEncoding(n_factors, dropout)
+        encoder_layers      =  nn.TransformerEncoderLayer(n_factors, n_head, n_hid, dropout)
+        self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, n_layers)
+
+
         self.num_filters   = 32
         self.filter_sizes: List[int] = [1, 3, 5]
         conv_size_out = len(self.filter_sizes) * self.num_filters
 
         self.convs1 = nn.ModuleList(
-            [nn.Conv2d(1, self.num_filters, (K, n_factors)) for K in self.filter_sizes])
+            [nn.Conv2d(1, self.num_filters, (K, n_word_factors)) for K in self.filter_sizes])
 
-        #output_dense_size =  4 * self.hidden_size +  conv_size_out + dense_size
-        output_dense_size =  4 * self.hidden_size + conv_size_out + dense_size
+        output_dense_size =  2 * self.hidden_size + 2 * n_factors + conv_size_out + dense_size
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
@@ -1044,6 +1051,19 @@ class MLNARMModel(RecommenderModule):
 
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    def src_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def layer_transformer(self, src, mask_hist):
+        # Create transform mask
+        mask          = self.src_mask(len(src)).to(src.device)
+        src           = self.pos_encoder(src*mask_hist)
+        att_hist_emb  = self.transformer_encoder(src, mask) # (B, H, E)
+        
+        return att_hist_emb
 
     def index_mapping_max_value(self, key: str) -> int:
         return max(self._index_mapping[key].values())+1
@@ -1109,12 +1129,15 @@ class MLNARMModel(RecommenderModule):
         mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
         mask        = mask * torch.where(seq != 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
 
-        mask_hist      = mask.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
-        embs           = embs * mask_hist
+        mask_hist   = mask.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+        embs        = embs * mask_hist
+
+        # Create transform mask
+        #embs = self.layer_transformer(embs, mask_hist) # (B, H, E)
+
 
         # Time Emb        
         #time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
-
         #embs       = (embs + time_emb)*mask_hist/2
 
         # GRU
@@ -1130,10 +1153,6 @@ class MLNARMModel(RecommenderModule):
         q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
         q2          = self.a_2(ht)
 
-        #mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
-        #mask2       = torch.where(seq != 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
-        #mask        *= mask2
-
         q2_expand   = q2.unsqueeze(1).expand_as(q1)
         q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand
 
@@ -1146,7 +1165,7 @@ class MLNARMModel(RecommenderModule):
                                 emb_last_domain,
                                 word_emb, 
                                 dense_features.float()], 1)
-        c_t     = self.ct_dropout(c_t)        
+        c_t        = self.ct_dropout(c_t)        
 
         #c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
         #c_t         = self.dense(self.ct_dropout(c_t))

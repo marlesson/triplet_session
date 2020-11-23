@@ -12,7 +12,7 @@ import functools
 
 from multiprocessing.pool import Pool
 from mars_gym.evaluation.task import BaseEvaluationTask
-from mercado_livre.data import PreProcessSessionTestDataset, SessionPrepareTestDataset
+from mercado_livre.data import PreProcessSessionTestDataset, SessionPrepareTestDataset, SessionPrepareLocalTestDataset
 import abc
 from typing import Type, Dict, List, Optional, Tuple, Union, Any, cast
 from torch.utils.data import DataLoader
@@ -87,15 +87,19 @@ class MLEvaluationTask(BaseEvaluationTask):
     history_window: int = luigi.IntParameter(default=30)
     normalize_dense_features: int = luigi.Parameter(default="min_max")
     normalize_file_path: str = luigi.Parameter(default=None)
-    file: str = luigi.Parameter(default=None)
+    local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
 
     @property
     def task_name(self):
-        return self.model_task_id + "_" + self.task_id.split("_")[-1] + "_sub"
+        return self.model_task_id + "_" + self.task_id.split("_")[-1] + "_sub_" + str(self.local)
 
     def requires(self):
-        return SessionPrepareTestDataset(history_window=self.history_window)
+
+        if self.local:
+            return SessionPrepareLocalTestDataset(history_window=self.history_window)
+        else:
+            return SessionPrepareTestDataset(history_window=self.history_window)
 
     @property
     def torch_device(self) -> torch.device:
@@ -137,33 +141,24 @@ class MLEvaluationTask(BaseEvaluationTask):
 
     def run(self):
         os.makedirs(self.output().path)
-        
-        if self.file:
-            df: pd.DataFrame = pd.read_csv(self.file)
-        
-            df = preprocess_interactions_data_frame(
-                df, 
-                self.model_training.project_config
-            ).sample(n=self.sample_size, random_state=42)
+    
+        df: pd.DataFrame = pd.read_parquet(self.input()[1].path)
+    
+        df = preprocess_interactions_data_frame(
+            df, 
+            self.model_training.project_config
+        )
 
-        else:
-            df: pd.DataFrame = pd.read_parquet(self.input()[1].path)
+        data = SessionInteractionDataFrame(
+                item_column="",
+                normalize_dense_features=self.normalize_dense_features,
+                normalize_file_path=self.normalize_file_path)
         
-            df = preprocess_interactions_data_frame(
-                df, 
-                self.model_training.project_config
-            )
+        data.transform_data_frame(df, "TEST_GENERATOR")
 
-            data = SessionInteractionDataFrame(
-                    item_column="",
-                    normalize_dense_features=self.normalize_dense_features,
-                    normalize_file_path=self.normalize_file_path)
-            
-            data.transform_data_frame(df, "TEST_GENERATOR")
-
-            # Index test dataset 
-            df['Index'] = df['SessionID'].astype(int)
-            df = df.sort_values("Index")
+        # Index test dataset 
+        df['Index'] = df['SessionID'].astype(int)
+        df = df.sort_values("Index")
 
         df.to_csv(self.output().path+"/dataset.csv")
 
@@ -243,7 +238,7 @@ class EvaluationSubmission(luigi.Task):
     history_window: int = luigi.IntParameter(default=30)
     normalize_dense_features: int = luigi.Parameter(default="min_max")
     normalize_file_path: str = luigi.Parameter(default=None)
-    file: str = luigi.Parameter(default=None)
+    local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
 
     def requires(self):
@@ -253,19 +248,20 @@ class EvaluationSubmission(luigi.Task):
                                 normalize_file_path=self.normalize_file_path,
                                 batch_size=self.batch_size,
                                 history_window=self.history_window,
-                                file=self.file,
-                                sample_size=self.sample_size)
+                                local=self.local,
+                                sample_size=self.sample_size), SessionPrepareLocalTestDataset(history_window=self.history_window)
     
+
     def output(self):
-        return luigi.LocalTarget(os.path.join(self.input().path, "metrics.json"))
+        return luigi.LocalTarget(os.path.join(self.input()[0].path, "metrics.json"))
 
     def run(self):
-        df: pd.DataFrame = pd.read_csv(self.file, usecols=['ItemID']).sample(n=self.sample_size, random_state=42)
-        df_sub: pd.DataFrame = pd.read_csv(self.input().path+'/submission_{}.csv'.format(self.requires().task_name), header=None)
+        df: pd.DataFrame = pd.read_parquet(self.input()[1][1].path)#.sample(n=self.sample_size, random_state=42, replace=True)#, usecols=['ItemID']).sample(n=self.sample_size, random_state=42, replace=True)
+        df_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
         
         def _create_relevance_list(sorted_actions, expected_action):
             return [1 if str(action) == str(expected_action) else 0 for action in sorted_actions]
-
+        #from IPython import embed; embed()
         df['reclist'] = list(df_sub.values)
 
         df['relevance_list'] = df.apply(lambda row: _create_relevance_list(row['reclist'], row['ItemID']),  axis=1)
@@ -354,7 +350,7 @@ class EvaluationSubmission(luigi.Task):
         pprint.pprint(metrics)
 
         with open(
-            os.path.join(self.input().path, "metrics.json"), "w"
+            os.path.join(self.input()[0].path, "metrics.json"), "w"
         ) as metrics_file:
             json.dump(metrics, metrics_file, cls=JsonEncoder, indent=4)
 

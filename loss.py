@@ -248,16 +248,22 @@ class CustomCrossEntropyLoss(_Loss):
     def __init__(self, weight = None, 
                        size_average=None, ignore_index: int = -100, 
                        reduce=None, 
+                       c=100,
                        reduction: str = 'mean'):
         
         super().__init__(size_average, reduce, reduction)
         
         self.reduction = reduction
-        self.loss = nn.CrossEntropyLoss(reduction=False)
+        self.c  = c
+        self.loss = nn.CrossEntropyLoss(reduction='none')
 
-    def forward(self, input, target):
+    def forward(self, input, target, domain_count):
         _loss = self.loss(input, target)
         
+        # Discount Popularity Bias
+        _popularity_bias = (self.c/torch.log(domain_count.float())) if self.c > 0 else 1
+        _loss = _loss*_popularity_bias
+                
         if self.reduction == "mean":
             return _loss.mean()
         else:

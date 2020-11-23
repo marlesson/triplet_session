@@ -28,7 +28,7 @@
 
 import luigi
 from mars_gym.simulation.training import SupervisedModelTraining
-from train import TripletTraining, TripletPredTraining
+from train import TripletTraining, TripletPredTraining, MercadoLivreTraining
 
 if __name__ == '__main__':
   # job = SupervisedModelTraining(
@@ -310,8 +310,8 @@ if __name__ == '__main__':
   
 
      
-  job = SupervisedModelTraining(
-    project="mercado_livre.config.mercado_livre_narm",
+  job = MercadoLivreTraining(
+    project="mercado_livre.config.mercado_livre_narm_custom",
     recommender_module_class="model.MLNARMModel",
     recommender_extra_params={
       "n_factors": 100, 
@@ -336,7 +336,7 @@ if __name__ == '__main__':
     metrics=["loss"],
     epochs=2,
     batch_size=2,
-    loss_function="ce",
+    loss_function="custom_ce",
     run_evaluate=True,
     sample_size_eval=5000
   )      
