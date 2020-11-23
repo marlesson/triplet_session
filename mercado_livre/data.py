@@ -523,7 +523,8 @@ class SessionPrepareDataset(BasePySparkTask):
         df = df.withColumn("last_ItemID_title", word_pad_history(col("last_ItemID_title"), lit(15), lit(WORD_PAD)))
 
         #w3 = Window.partitionBy(['SessionID', 'event_type_click']).orderBy(col('event_type_click').asc(), 'Timestamp')
-        df = df.withColumn("last_event_search",   lag(df.event_search, 1).over(w)).fillna("[]", subset=['last_event_search'])
+        df = df.withColumn("last_event_search",   lag(df.event_search, 1).over(w) ).fillna("[]", subset=['last_event_search'])
+        
         df = df.withColumn("last_event_search",   word_pad_history(col("last_event_search"), lit(15), lit(WORD_PAD)))
         df = df.withColumn("last_event_type_idx",   lag(df.event_type_idx, 1).over(w))
 
@@ -562,11 +563,6 @@ class SessionPrepareDataset(BasePySparkTask):
                 .fillna(0.0, subset=["diff_price_norm" ,"min_last_price_norm" ,"max_last_price_norm",
                                     "mean_last_price_norm" ,"sum_last_price_norm"])      
         
-        _df = df.filter(df.SessionID == 6).select("Timestamp","cum_Timestamp", "price_norm", "last_price_norm", "diff_price_norm" ,"min_last_price_norm" ,"max_last_price_norm",
-                                    "mean_last_price_norm" ,"sum_last_price_norm").cache()
-                                    
-        print(_df.show())
-        #a
         # add last search or view binary
         #...
 

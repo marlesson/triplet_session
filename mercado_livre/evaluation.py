@@ -88,10 +88,16 @@ def _get_domain(arr, domain_map):
     return list(map(domain_map.get, arr))
 
 def _get_moda(arr):
-    return stats.mode(arr)[0][0]
+    try:
+        return stats.mode(arr)[0][0]
+    except:
+        return 0 
 
 def _get_count_moda(arr):
-    return stats.mode(arr)[1][0]/len(arr)
+    try:
+        return stats.mode(arr)[1][0]/len(arr)
+    except:
+        return 0     
 
 def _create_relevance_list(sorted_actions, expected_action):
     return [1 if str(action) == str(expected_action) else 0 for action in sorted_actions]
@@ -202,7 +208,7 @@ class MLEvaluationTask(BaseEvaluationTask):
         )
 
     def pos_process(self, rank_list):
-        df_item     = pd.read_csv(ITEM_META_PATH, usecols=["item_id", "domain_id", "domain_idx"])#.head(10)
+        df_item     = pd.read_csv(ITEM_META_PATH, usecols=["item_id", "domain_id", "domain_idx"]).fillna(0)#.head(10)
         domain_map  = df_item[['item_id', 'domain_idx']].set_index("item_id").to_dict()["domain_idx"]
 
         with Pool(os.cpu_count()) as p:
@@ -341,7 +347,7 @@ class EvaluationSubmission(luigi.Task):
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
-    percent_limit: float = luigi.FloatParameter(default=0.2)
+    percent_limit: float = luigi.FloatParameter(default=0.4)
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,

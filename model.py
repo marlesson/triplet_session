@@ -1009,7 +1009,7 @@ class MLNARMModel(RecommenderModule):
         self.embedding_dim = n_factors
         n_time_dim      = 100
         n_word_factors  = 100
-        self.n_item_dim      = self.index_mapping_max_value('ItemID_history')
+        self.n_item_dim = self.index_mapping_max_value('ItemID_history')
         n_domain_dim    = self.index_mapping_max_value('domain_idx_history')
 
         self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
@@ -1042,12 +1042,20 @@ class MLNARMModel(RecommenderModule):
         self.convs1 = nn.ModuleList(
             [nn.Conv2d(1, self.num_filters, (K, n_word_factors)) for K in self.filter_sizes])
 
-        output_dense_size =  2 * self.hidden_size + 2 * n_factors + conv_size_out + dense_size
+        #output_dense_size =  2 * self.hidden_size + 2 * n_factors + conv_size_out + dense_size
+        output_dense_size =  2 * self.hidden_size + conv_size_out + dense_size + n_factors
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
             nn.Linear(output_dense_size, output_dense_size),
         )
+
+        self.last_feat = nn.Sequential(
+            nn.Linear(2 * n_factors, n_factors),
+            nn.SELU(),
+            nn.Linear(n_factors, n_factors),
+        )
+        
 
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1159,12 +1167,17 @@ class MLNARMModel(RecommenderModule):
         alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
         c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
         
-        #c_t     = torch.cat([c_local, c_global, word_emb, dense_features.float()], 1)
+        last_features = self.last_feat(torch.cat([emb_last_ItemID, emb_last_domain], 1))
+
         c_t         = torch.cat([c_local, c_global, 
-                                emb_last_ItemID, 
-                                emb_last_domain,
-                                word_emb, 
+                                word_emb,
+                                last_features, 
                                 dense_features.float()], 1)
+        # c_t         = torch.cat([c_local, c_global, 
+        #                         emb_last_ItemID, 
+        #                         emb_last_domain,
+        #                         word_emb, 
+        #                         dense_features.float()], 1)
         c_t        = self.ct_dropout(c_t)        
 
         #c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
