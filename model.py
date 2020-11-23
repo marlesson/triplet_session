@@ -1127,7 +1127,7 @@ class MLNARMModel(RecommenderModule):
         # Mask History
         # mask_hist_idx  = (item_history_ids != PAD).to(device).float()
         mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
-        mask        = mask * torch.where(seq != 0, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
+        mask        = mask * torch.where(seq != UNK, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
 
         mask_hist   = mask.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
         embs        = embs * mask_hist
@@ -1137,8 +1137,8 @@ class MLNARMModel(RecommenderModule):
 
 
         # Time Emb        
-        #time_emb   = self.time_emb(time_history.float().unsqueeze(2)) # (B, H, E)
-        #embs       = (embs + time_emb)*mask_hist/2
+        #time_emb   = self.time_emb((time_history.float()* mask).unsqueeze(2) ) # (B, H, E)
+        #embs       = (embs + time_emb)*mask_hist#/2
 
         # GRU
         gru_out1, hidden = self.gru1(embs, hidden)

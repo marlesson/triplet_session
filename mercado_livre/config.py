@@ -115,7 +115,7 @@ mercado_livre_narm_custom = ProjectConfig(
     other_input_columns=[
         Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
         Column("domain_idx_history", IOType.INDEXABLE_ARRAY),
-        Column("timestamp_history", IOType.INT_ARRAY),
+        Column("cum_timestamp_history", IOType.INT_ARRAY),
         Column("last_ItemID", IOType.INDEXABLE, same_index_as="ItemID"),
         Column("last_domain_idx", IOType.INDEXABLE, same_index_as="domain_idx_history"),        
         Column("last_ItemID_title", IOType.INT_ARRAY),

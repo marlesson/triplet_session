@@ -54,15 +54,76 @@ from mars_gym.utils.utils import parallel_literal_eval, JsonEncoder
 import pprint
 import json
 import luigi
+import pandas as pd
+import functools
+import numpy as np
+from tqdm import tqdm
+import os
+from multiprocessing.pool import Pool
+from scipy import stats
 
+ITEM_META_PATH = "/media/workspace/triplet_session/output/mercado_livre/dataset/item__processed.csv"
+
+
+def ndcg_ml(r):
+    pos = np.array(range(len(r))) + 1
+    
+    reclist_i = np.ones(len(r))
+    reclist_i[0] = 12
+
+    dcg  = r/np.log(1+pos)
+    dcgi = reclist_i/np.log(1+pos)
+    
+    ndcg = np.sum(dcg)/np.sum(dcgi)
+
+    return ndcg
 
 def _sort_rank_list(score, index_mapping):
-    item_idx  = np.argsort(score)[::-1][:10]
+    item_idx  = np.argsort(score)[::-1][:100]
     #from IPython import embed; embed()
     item_id   = [int(index_mapping[item]) for item in item_idx]
     return item_id
 
-    
+def _get_domain(arr, domain_map):
+    return list(map(domain_map.get, arr))
+
+def _get_moda(arr):
+    return stats.mode(arr)[0][0]
+
+def _get_count_moda(arr):
+    return stats.mode(arr)[1][0]/len(arr)
+
+def _create_relevance_list(sorted_actions, expected_action):
+    return [1 if str(action) == str(expected_action) else 0 for action in sorted_actions]
+
+def _create_relevance_list_domain(sorted_actions, expected_action):
+    s = []
+    for i in range(len(sorted_actions)):
+        if str(sorted_actions[i]) == str(expected_action):
+            s.append(i + 0)
+        else:
+            s.append(i + 100)
+    return s
+
+def _create_relevance_list_ml(reclist, domainlist, item_id, domain_id):
+    s = []
+    for i in range(len(reclist)):
+        if str(reclist[i]) == str(item_id):
+            value = 12
+        elif str(domainlist[i]) == str(domain_id):
+            value = 1
+        else:
+            value = 0
+        s.append(value)
+    return s    
+
+def _sorte_by_domain_moda(reclist, relevance_list, percent_limit, limit):
+    if percent_limit >= limit:
+        return [x for _,x in sorted(zip(relevance_list, reclist), reverse=False)]
+    else:
+        return reclist
+
+
 # PYTHONPATH="." luigi --module mercado_livre.evaluation MLEvaluationTask \
 # --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
 # --model-task-id SupervisedModelTraining____mars_gym_model_b____e3ae64b091 \
@@ -89,6 +150,7 @@ class MLEvaluationTask(BaseEvaluationTask):
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
+    percent_limit: float = luigi.FloatParameter(default=0.2)
 
     @property
     def task_name(self):
@@ -138,6 +200,43 @@ class MLEvaluationTask(BaseEvaluationTask):
             num_workers=self.generator_workers,
             pin_memory=self.pin_memory if self.device == "cuda" else False,
         )
+
+    def pos_process(self, rank_list):
+        df_item     = pd.read_csv(ITEM_META_PATH, usecols=["item_id", "domain_id", "domain_idx"])#.head(10)
+        domain_map  = df_item[['item_id', 'domain_idx']].set_index("item_id").to_dict()["domain_idx"]
+
+        with Pool(os.cpu_count()) as p:
+            _map_domain = list(tqdm(
+                p.map(functools.partial(_get_domain, domain_map=domain_map), rank_list),
+                total=len(rank_list),
+            ))  
+            
+        arr_moda = list(zip(list(rank_list), 
+                            list(_map_domain),  
+                            list(map(_get_moda, _map_domain)), 
+                            list(map(_get_count_moda, _map_domain))))
+
+        df_moda = pd.DataFrame(arr_moda, columns=["reclist", "domainlist", "domain_moda", "count"])
+
+        df_moda['relevance_list'] = df_moda.apply(lambda row: 
+                                                _create_relevance_list_domain(row['domainlist'], row['domain_moda']),  
+                                                axis=1)
+#_create_relevance_list_ml
+
+        df_moda['reclist_2'] = df_moda.apply(lambda row: _sorte_by_domain_moda(
+                        row['reclist'], 
+                        row['relevance_list'], 
+                        row['count'], self.percent_limit)[:10],  axis=1)
+        
+
+        df_moda['domainlist_2'] = df_moda.apply(lambda row: _sorte_by_domain_moda(
+                        row['domainlist'], 
+                        row['relevance_list'], 
+                        row['count'], self.percent_limit)[:10],  axis=1)
+
+
+
+        return df_moda
 
     def run(self):
         os.makedirs(self.output().path)
@@ -206,14 +305,16 @@ class MLEvaluationTask(BaseEvaluationTask):
                     ))
                     rank_list.extend(_rank_list)
 
-                # for score in tqdm(scores_batch, total=len(scores_batch)):
-                #     item_idx  = np.argsort(score)[::-1][:10]
-                #     #from IPython import embed; embed()
-                #     item_id   = [int(reverse_index_mapping[item]) for item in item_idx]
-                #     rank_list.append(item_id)
-                
                 gc.collect()
-        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), np.array(rank_list).astype(int), fmt='%i', delimiter=',') 
+
+        df_moda  = self.pos_process(rank_list)
+        rank_list = df_moda['reclist_2'].values
+        rank_list = np.array([np.array(r).astype(int) for r in rank_list])
+
+        #from IPython import embed; embed()
+        df_moda.to_csv(self.output().path+'/df_submission.csv', index=False)
+        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), rank_list, fmt='%i', delimiter=',') 
+
 
 # PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 # --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
@@ -240,6 +341,7 @@ class EvaluationSubmission(luigi.Task):
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
+    percent_limit: float = luigi.FloatParameter(default=0.2)
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
@@ -249,7 +351,8 @@ class EvaluationSubmission(luigi.Task):
                                 batch_size=self.batch_size,
                                 history_window=self.history_window,
                                 local=self.local,
-                                sample_size=self.sample_size), SessionPrepareLocalTestDataset(history_window=self.history_window)
+                                sample_size=self.sample_size,
+                                percent_limit=self.percent_limit), SessionPrepareLocalTestDataset(history_window=self.history_window)
     
 
     def output(self):
@@ -257,14 +360,13 @@ class EvaluationSubmission(luigi.Task):
 
     def run(self):
         df: pd.DataFrame = pd.read_parquet(self.input()[1][1].path)#.sample(n=self.sample_size, random_state=42, replace=True)#, usecols=['ItemID']).sample(n=self.sample_size, random_state=42, replace=True)
-        df_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
-        
-        def _create_relevance_list(sorted_actions, expected_action):
-            return [1 if str(action) == str(expected_action) else 0 for action in sorted_actions]
-        #from IPython import embed; embed()
-        df['reclist'] = list(df_sub.values)
+        arr_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
+        df_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/df_submission.csv')
 
+        df['reclist']        = list(arr_sub.values)
+        df['domainlist']     = list(df_sub.domainlist_2.apply(eval))
         df['relevance_list'] = df.apply(lambda row: _create_relevance_list(row['reclist'], row['ItemID']),  axis=1)
+        df['relevance_list_ml'] = df.apply(lambda row: _create_relevance_list_ml(row['reclist'], row['domainlist'], row['ItemID'], row['domain_idx']),  axis=1)
 
 
         with Pool(os.cpu_count()) as p:
@@ -334,8 +436,18 @@ class EvaluationSubmission(luigi.Task):
                 )
             )
 
+            print("Calculating nDCGML...")
+            df["ndcg_ml"] = list(
+                tqdm(
+                    p.map(functools.partial(ndcg_ml), df["relevance_list_ml"]),
+                    total=len(df),
+                )
+            )
+            
+
         metrics = {
             "model_task": self.model_task_id,
+            "percent_limit": self.percent_limit,
             "count": len(df),
             "mean_average_precision": df["average_precision"].mean(),
             "precision_at_1": df["precision_at_1"].mean(),
@@ -346,6 +458,7 @@ class EvaluationSubmission(luigi.Task):
             "ndcg_at_15": df["ndcg_at_15"].mean(),
             "ndcg_at_20": df["ndcg_at_20"].mean(),
             "ndcg_at_50": df["ndcg_at_50"].mean(),
+            "ndcg_ml": df["ndcg_ml"].mean(),
         }
         pprint.pprint(metrics)
 
