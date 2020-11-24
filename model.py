@@ -1151,6 +1151,9 @@ class MLNARMModel(RecommenderModule):
         word_emb   = self.emb_dropout(self.word_emb(last_text_idx.to(device)))
         mask_text  = mask_text.to(device).unsqueeze(1).repeat((1,word_emb.size(2),1)).permute(0,2,1)
         word_emb   = word_emb * mask_text
+
+        # Create transform mask
+        #word_emb   = self.layer_transformer(word_emb, mask_text) # (B, H, E)
         word_emb   = self.conv_block(word_emb)
 
         # Mask History
@@ -1169,17 +1172,14 @@ class MLNARMModel(RecommenderModule):
         c_global, c_local = self.narm_rnn(embs, hidden, mask)
         #c_global2, c_local2 = self.narm_rnn(emb_domain, hidden, mask)
 
-        last_feat   = self.last_feat(torch.cat([emb_last_ItemID, emb_last_domain], 1))
+        last_feat   = self.last_feat(torch.cat([emb_last_ItemID, 
+                                                emb_last_domain], 1))
 
         c_t         = torch.cat([c_local, c_global, 
                                 word_emb,
                                 last_feat, 
                                 dense_features.float()], 1)
-        # c_t         = torch.cat([c_local, c_global, 
-        #                         emb_last_ItemID, 
-        #                         emb_last_domain,
-        #                         word_emb, 
-        #                         dense_features.float()], 1)
+
         c_t        = self.ct_dropout(c_t)        
 
         item_embs  = self.emb(torch.arange(self.n_item_dim).to(device).long())

@@ -524,9 +524,12 @@ class SessionPrepareDataset(BasePySparkTask):
 
         #w3 = Window.partitionBy(['SessionID', 'event_type_click']).orderBy(col('event_type_click').asc(), 'Timestamp')
         df = df.withColumn("last_event_search",   lag(df.event_search, 1).over(w) ).fillna("[]", subset=['last_event_search'])
-        
         df = df.withColumn("last_event_search",   word_pad_history(col("last_event_search"), lit(15), lit(WORD_PAD)))
+
         df = df.withColumn("last_event_type_idx",   lag(df.event_type_idx, 1).over(w))
+
+        df = df.withColumn("last_title_search",  when(col("last_event_type_idx") == lit(3), col("last_event_search")).otherwise(col("last_ItemID_title")))
+        df = df.withColumn("last_title_search",  word_pad_history(col("last_title_search"), lit(15), lit(WORD_PAD)))
 
         # Add step
         df = df.withColumn("step", lit(1))
@@ -815,6 +818,7 @@ class SessionPrepareDataset(BasePySparkTask):
                 "last_ItemID",
                 "last_ItemID_title",
                 "last_event_search",
+                "last_title_search",
                 "last_event_type_idx",
                 "last_domain_idx",
                 "step",
@@ -903,6 +907,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     days_test: int = luigi.IntParameter(default=1)
     index_mapping_path: str = luigi.Parameter(default=None)
     filter_only_buy: bool = luigi.BoolParameter(default=False)
+    sample_view: int = luigi.IntParameter(default=0)
     min_interactions: int = luigi.IntParameter(default=5)
     min_session_size: int = luigi.IntParameter(default=2)
     normalize_dense_features: str = luigi.Parameter(default="min_max")
@@ -1009,8 +1014,17 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
             self.transform_all(df)
             self.build_dense_features(df, data_key)
 
-        if (self.filter_only_buy or data_key == 'TEST_GENERATOR'): 
+        if data_key == 'TEST_GENERATOR': 
             df = df[df['event_type_idx'] == ML_BUY] # buy
+        elif self.filter_only_buy:
+            if self.sample_view > 0:
+                df_buy  = df[df['event_type_idx'] == ML_BUY] # buy
+                df_view = df[df['event_type_idx'] != ML_BUY].sample(self.sample_view) # buy
+
+                df = pd.concat([df_buy, df_view])
+            else:
+                df = df[df['event_type_idx'] == ML_BUY] # buy
+
 
         return df
 
