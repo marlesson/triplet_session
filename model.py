@@ -1005,7 +1005,7 @@ class MLNARMModel(RecommenderModule):
         super().__init__(project_config, index_mapping)
 
         self.hidden_size = hidden_size
-        self.n_layers = n_layers
+        self.n_layers    = n_layers
         self.embedding_dim = n_factors
         n_time_dim      = 100
         n_word_factors  = 100
@@ -1027,9 +1027,9 @@ class MLNARMModel(RecommenderModule):
         self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
         self.ct_dropout = nn.Dropout(dropout)
 
-        n_head = 2
-        n_hid = 100
-        n_layers = 1
+        n_head      = 2
+        n_hid       = 100
+        n_layers    = 1
         self.pos_encoder    = PositionalEncoding(n_factors, dropout)
         encoder_layers      =  nn.TransformerEncoderLayer(n_factors, n_head, n_hid, dropout)
         self.transformer_encoder =  nn.TransformerEncoder(encoder_layers, n_layers)
@@ -1055,7 +1055,6 @@ class MLNARMModel(RecommenderModule):
             nn.SELU(),
             nn.Linear(n_factors, n_factors),
         )
-        
 
         self.b      = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1092,13 +1091,35 @@ class MLNARMModel(RecommenderModule):
         return torch.Tensor([(np.pad(w[:pad], (0, pad-len(w[:pad])), mode='constant', constant_values=constant_values)) for w in arr]).long()
 
     def join_word_tokens(self, last_ItemID_title, last_event_search, size = 50):
-        #tensor_last_ItemID_title = self.add_pad_tensor(last_ItemID_title, size, WORD_PAD)
-        #tensor_last_event_search = self.add_pad_tensor(last_event_search, size, WORD_PAD)
         
         last_text_idx  = torch.cat([last_ItemID_title, last_event_search], 1)#.to(self.device)
         mask_text      = (last_text_idx != WORD_PAD).float()
 
         return last_text_idx, mask_text
+
+    def init_hidden(self, batch_size):
+        return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
+
+    def narm_rnn(self, embs, hidden, mask):
+        gru_out1, hidden = self.gru1(embs, hidden)
+        #gru_out2, _      = self.gru2(emb_domain, hidden)
+        #gru_out3, hidden3 = self.gru3(word_emb, hidden)
+
+        # fetch the last hidden state of last timestamp
+        ht          = hidden.permute(1, 0, 2)[:, -1] 
+        gru_out     = gru_out1# + gru_out2# + gru_out3#.permute(1, 0, 2)
+
+        c_global    = ht
+        q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
+        q2          = self.a_2(ht)
+
+        q2_expand   = q2.unsqueeze(1).expand_as(q1)
+        q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand
+
+        alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
+        c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
+
+        return c_global,c_local
 
     def forward(self, session_ids, 
                         item_ids, 
@@ -1133,45 +1154,26 @@ class MLNARMModel(RecommenderModule):
         word_emb   = self.conv_block(word_emb)
 
         # Mask History
-        # mask_hist_idx  = (item_history_ids != PAD).to(device).float()
         mask        = torch.where(seq != PAD, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
         mask        = mask * torch.where(seq != UNK, torch.tensor([1.], device = device), torch.tensor([0.], device = device))
-
         mask_hist   = mask.unsqueeze(1).repeat((1,embs.size(2),1)).permute(0,2,1)
+
+        # Embs
         embs        = embs * mask_hist
-
-        # Create transform mask
-        #embs = self.layer_transformer(embs, mask_hist) # (B, H, E)
-
-
+        #emb_domain  = emb_domain * mask_hist
         # Time Emb        
         #time_emb   = self.time_emb((time_history.float()* mask).unsqueeze(2) ) # (B, H, E)
         #embs       = (embs + time_emb)*mask_hist#/2
 
-        # GRU
-        gru_out1, hidden = self.gru1(embs, hidden)
-        #gru_out2, _      = self.gru2(emb_domain, hidden)
-        #gru_out3, hidden3 = self.gru3(word_emb, hidden)
+        # Item Embs Rnn
+        c_global, c_local = self.narm_rnn(embs, hidden, mask)
+        #c_global2, c_local2 = self.narm_rnn(emb_domain, hidden, mask)
 
-        # fetch the last hidden state of last timestamp
-        ht          = hidden.permute(1, 0, 2)[:, -1] 
-        gru_out     = gru_out1 # + gru_out2# + gru_out3#.permute(1, 0, 2)
-
-        c_global    = ht
-        q1          = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
-        q2          = self.a_2(ht)
-
-        q2_expand   = q2.unsqueeze(1).expand_as(q1)
-        q2_masked   = mask.unsqueeze(2).expand_as(q1) * q2_expand
-
-        alpha       = self.v_t(torch.sigmoid(q1 + q2_masked).view(-1, self.hidden_size)).view(mask.size())
-        c_local     = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
-        
-        last_features = self.last_feat(torch.cat([emb_last_ItemID, emb_last_domain], 1))
+        last_feat   = self.last_feat(torch.cat([emb_last_ItemID, emb_last_domain], 1))
 
         c_t         = torch.cat([c_local, c_global, 
                                 word_emb,
-                                last_features, 
+                                last_feat, 
                                 dense_features.float()], 1)
         # c_t         = torch.cat([c_local, c_global, 
         #                         emb_last_ItemID, 
@@ -1180,11 +1182,8 @@ class MLNARMModel(RecommenderModule):
         #                         dense_features.float()], 1)
         c_t        = self.ct_dropout(c_t)        
 
-        #c_t         = torch.cat([c_local, c_global, dense_features.float()], 1)
-        #c_t         = self.dense(self.ct_dropout(c_t))
-        
-        item_embs   = self.emb(torch.arange(self.n_item_dim).to(device).long())
-        scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
+        item_embs  = self.emb(torch.arange(self.n_item_dim).to(device).long())
+        scores     = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
 
         return scores
 
@@ -1213,9 +1212,6 @@ class MLNARMModel(RecommenderModule):
         scores = scores[torch.arange(scores.size(0)),item_ids]
 
         return scores
-
-    def init_hidden(self, batch_size):
-        return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
 
 def embedded_dropout(embed, words, dropout=0.1):
     mask = embed.weight.data.new_empty((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
