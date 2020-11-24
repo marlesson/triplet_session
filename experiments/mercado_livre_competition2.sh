@@ -82,17 +82,19 @@ mars-gym run supervised \
   "hidden_size": 200, 
   "dense_size": 19,
   "n_layers": 1, 
-  "dropout": 0.2, 
+  "dropout": 0.5, 
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
 --data-frames-preparation-extra-params '{
-  "sample_days": 60, 
+  "sample_days": 360, 
   "history_window": 20, 
   "column_stratification": "SessionID",
   "normalize_dense_features": "min_max",
   "min_interactions": 2,
-  "filter_only_buy": true}' \
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+ --optimizer-params '{"weight_decay": 1e-5}' \
 --test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
@@ -106,34 +108,29 @@ mars-gym run supervised \
 --epochs 100 \
 --obs ""
 
-SupervisedModelTraining____mars_gym_model_b____cac288a509
-
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____734b49a73f \
---normalize-file-path "1e51172d1f_std_scaler.pkl" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____3fcfe47a17 \
+--normalize-file-path "bb573d7539_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
---percent-limit 0.4 \
+--percent-limit 1 \
 --local-scheduler \
 --local  
 
-# Pos Process
-
-{'count': 1000,
- 'mean_average_precision': 0.24841547619047616,
- 'model_task': 'SupervisedModelTraining____mars_gym_model_b____734b49a73f',
- 'mrr_at_10': 0.24841547619047616,
- 'mrr_at_5': 0.2452,
- 'ndcg_at_10': 0.28510912541917616,
- 'ndcg_at_15': 0.28510912541917616,
- 'ndcg_at_20': 0.28510912541917616,
- 'ndcg_at_5': 0.27683358417344095,
- 'ndcg_at_50': 0.28510912541917616,
- 'ndcg_ml': 0.242800287705534,
- 'percent_limit': 0.4,
- 'precision_at_1': 0.213}
-
+# {'count': 1000,
+#  'mean_average_precision': 0.2394373015873016,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____3fcfe47a17',
+#  'mrr_at_10': 0.2394373015873016,
+#  'mrr_at_5': 0.23443333333333333,
+#  'ndcg_at_10': 0.2859531007691741,
+#  'ndcg_at_15': 0.2859531007691741,
+#  'ndcg_at_20': 0.2859531007691741,
+#  'ndcg_at_5': 0.2734792498335262,
+#  'ndcg_at_50': 0.2859531007691741,
+#  'ndcg_ml': 0.24913278525801766,
+#  'percent_limit': 1.0,
+#  'precision_at_1': 0.195}
 
 #### Other
 
@@ -147,17 +144,19 @@ PYTHONPATH="."  luigi  \
   "hidden_size": 200, 
   "dense_size": 19,
   "n_layers": 1, 
-  "dropout": 0.2, 
+  "dropout": 0.5, 
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
 --data-frames-preparation-extra-params '{
-  "sample_days": 60, 
+  "sample_days": 360, 
   "history_window": 20, 
   "column_stratification": "SessionID",
   "normalize_dense_features": "min_max",
   "min_interactions": 2,
-  "filter_only_buy": true}' \
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+ --optimizer-params '{"weight_decay": 1e-5}' \
 --test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \

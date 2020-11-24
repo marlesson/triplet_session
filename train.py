@@ -296,5 +296,18 @@ class TripletTraining(SupervisedModelTraining):
 class MercadoLivreTraining(SupervisedModelTraining):
     loss_function:  str = luigi.ChoiceParameter(choices=["ce", "custom_ce"], default="ce")
 
+    def class_weights(self):
+        
+        df_weights = pd.concat([self.train_dataset._data_frame[[self.project_config.output_column.name]], 
+                    self.val_dataset._data_frame[[self.project_config.output_column.name]]])
+        weights    = df_weights[self.project_config.output_column.name].value_counts().sort_index().values
+        weights    = 1/np.array(list([1,1,1]) + list(weights))
+        
+        return weights
+
     def _get_loss_function(self):
+        if self.loss_function == 'custom_ce':
+            self.loss_function_params = dict(self.loss_function_params)
+            self.loss_function_params['class_weights'] = self.class_weights()
+
         return TORCH_LOSS_FUNCTIONS[self.loss_function](**self.loss_function_params)

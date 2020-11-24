@@ -809,6 +809,7 @@ class SessionPrepareDataset(BasePySparkTask):
         df = df.withColumn("last_ItemID", df.last_ItemID.cast(IntegerType()))
         df = df.withColumn("product_id", df.product_id.cast(IntegerType()))
         df = df.withColumn("last_event_search", df.last_event_search.cast(StringType()))
+        df = df.withColumn("last_title_search", df.last_title_search.cast(StringType()))
 
         columns = ["SessionID",
                 "ItemID",
@@ -950,7 +951,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
     def transform_all(self, df):
         # Cast List()
         columns = [ "last_ItemID_title",
-                    "step_history",                           
+                    "step_history",     
                     "timestamp_history",                      
                     "cum_timestamp_history",                  
                     "event_type_idx_history",                 
@@ -1016,10 +1017,16 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
         if data_key == 'TEST_GENERATOR': 
             df = df[df['event_type_idx'] == ML_BUY] # buy
+            
         elif self.filter_only_buy:
             if self.sample_view > 0:
+                if data_key == 'VALIDATION_DATA':
+                    _sample_view_size = int(self.sample_view * self.val_size)
+                else:
+                    _sample_view_size = int(self.sample_view * (1-self.val_size))
+
                 df_buy  = df[df['event_type_idx'] == ML_BUY] # buy
-                df_view = df[df['event_type_idx'] != ML_BUY].sample(self.sample_view) # buy
+                df_view = df[df['event_type_idx'] != ML_BUY].sample(_sample_view_size) # view
 
                 df = pd.concat([df_buy, df_view])
             else:
