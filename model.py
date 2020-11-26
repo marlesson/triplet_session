@@ -1293,7 +1293,7 @@ class MLNARMModel2(RecommenderModule):
         
 
         self.mlp_dense = nn.Sequential(
-            nn.Linear(dense_size, f_dense_output),
+            nn.Linear(dense_size + 20, f_dense_output),
             self.activate_func,
             nn.Linear(f_dense_output, f_dense_output),
         )
@@ -1359,7 +1359,8 @@ class MLNARMModel2(RecommenderModule):
                         text_history,
                         mode_category_idx,
                         mode_domain_idx,
-                        mode_product_idx,                       
+                        mode_product_idx, 
+                        price_history,                      
                         dense_features):
 
         device = item_ids.device
@@ -1395,9 +1396,11 @@ class MLNARMModel2(RecommenderModule):
         m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
                                                         emb_mode_category], 1))
 
-        d_features  = self.mlp_dense(dense_features.float())
+        d_features  = self.mlp_dense(torch.cat([dense_features.float(),
+                                                price_history.float()], 1))
 
         
+
         c_t         = torch.cat([c_local, 
                                 c_global,
                                 d_features,
@@ -1405,6 +1408,8 @@ class MLNARMModel2(RecommenderModule):
                                 l_features], 1)
 
         c_t         = self.ct_dropout(c_t)
+        
+        #scores      = F.softmax(self.dense_out(c_t), dim=1)
         
         item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
@@ -1426,7 +1431,8 @@ class MLNARMModel2(RecommenderModule):
                                     text_history,
                                     mode_category_idx,
                                     mode_domain_idx,
-                                    mode_product_idx,                                          
+                                    mode_product_idx,  
+                                    price_history,                                        
                                     dense_features):
         
         scores = self.forward(session_ids, 
@@ -1441,7 +1447,8 @@ class MLNARMModel2(RecommenderModule):
                                 text_history,
                                 mode_category_idx,
                                 mode_domain_idx,
-                                mode_product_idx,                                      
+                                mode_product_idx,  
+                                price_history,                                    
                                 dense_features)
 
         scores = scores[torch.arange(scores.size(0)),item_ids]

@@ -616,8 +616,8 @@ class SessionPrepareDataset(BasePySparkTask):
         # Add Scaler Price
         summary =  df.filter(df.event_type_idx == ML_VIEW).select([mean('price').alias('mu'), stddev('price').alias('sigma')])\
                         .collect().pop()
-        #df = df.withColumn('price_norm', F.round((df['price']-summary.mu)/summary.sigma, 4))
-        df = df.withColumn('price_norm', F.round(df['price'], 4))
+        df = df.withColumn('price_norm', F.round((df['price']-summary.mu)/summary.sigma, 4))
+        #df = df.withColumn('price_norm', F.round(df['price'], 4))
         df = df.withColumn('last_price_norm', F.round(lag(df.price_norm, 1).over(w2), 4)).fillna(0, subset=['last_price_norm'])      
         df = df.withColumn("diff_price_norm",  F.round(lag(col('price_norm'), 2).over(w2)-df.last_price_norm, 4))
 
