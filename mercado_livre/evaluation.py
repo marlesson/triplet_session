@@ -79,9 +79,13 @@ def ndcg_ml(r):
     return ndcg
 
 def _sort_rank_list(score, index_mapping):
+    # UNK, PAD, PAD
+    score[0] = score[1] = score[2] = 0
+
     item_idx  = np.argsort(score)[::-1][:100]
-    #from IPython import embed; embed()
+    
     item_id   = [int(index_mapping[item]) for item in item_idx]
+    
     return item_id
 
 def _get_domain(arr, domain_map):
@@ -302,7 +306,9 @@ class MLEvaluationTask(BaseEvaluationTask):
                 scores_tensor: torch.Tensor  = model(*input_params)
                 scores_batch = scores_tensor.detach().cpu().numpy()
                 #scores.extend(scores_batch)
-                #from IPython import embed; embed()
+
+                # Test
+                _sort_rank_list(scores_batch[0], index_mapping=reverse_index_mapping)
 
                 with Pool(3) as p:
                     _rank_list = list(tqdm(

@@ -25,6 +25,7 @@ from util.transformer import *
 import copy
 from torch.autograd import Variable
 import gensim
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
 
 WORD_UNK  = 18751
 WORD_PAD  = 18752
@@ -774,8 +775,6 @@ class NARMModel(RecommenderModule):
 
     def init_hidden(self, batch_size):
         return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
-
-
         
 class MatrixFactorizationModel(RecommenderModule):
     def __init__(
@@ -1011,8 +1010,15 @@ class MLNARMModel(RecommenderModule):
         n_word_factors  = 100
         self.n_item_dim = self.index_mapping_max_value('ItemID_history')
         n_domain_dim    = self.index_mapping_max_value('domain_idx_history')
+        n_product_dim   = self.index_mapping_max_value('mode_product_id_history')
+        n_category_dim  = self.index_mapping_max_value('mode_category_idx_history')
+
 
         self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
+
+        self.emb_domain = nn.Embedding(n_domain_dim, self.embedding_dim)
+        self.emb_product = nn.Embedding(n_product_dim, self.embedding_dim)
+        self.emb_category = nn.Embedding(n_category_dim, self.embedding_dim)
 
         self.emb_domain = nn.Embedding(n_domain_dim, self.embedding_dim)
         self.emb        = load_embedding(self.n_item_dim, n_factors, False,  from_index_mapping, index_mapping, False)
@@ -1043,7 +1049,7 @@ class MLNARMModel(RecommenderModule):
             [nn.Conv2d(1, self.num_filters, (K, n_word_factors)) for K in self.filter_sizes])
 
         #output_dense_size =  2 * self.hidden_size + 2 * n_factors + conv_size_out + dense_size
-        output_dense_size =  2 * self.hidden_size + conv_size_out + dense_size + n_factors
+        output_dense_size =  2 * self.hidden_size #+ conv_size_out + dense_size + 2 * n_factors
 
         self.dense = nn.Sequential(
             nn.BatchNorm1d(output_dense_size),
@@ -1052,6 +1058,12 @@ class MLNARMModel(RecommenderModule):
 
         self.last_feat = nn.Sequential(
             nn.Linear(2 * n_factors, n_factors),
+            nn.SELU(),
+            nn.Linear(n_factors, n_factors),
+        )
+
+        self.mode_feat = nn.Sequential(
+            nn.Linear(3 * n_factors, n_factors),
             nn.SELU(),
             nn.Linear(n_factors, n_factors),
         )
@@ -1130,6 +1142,9 @@ class MLNARMModel(RecommenderModule):
                         last_domain_idx,
                         last_ItemID_title,
                         last_event_search,
+                        mode_category_idx,
+                        mode_domain_idx,
+                        mode_product_idx,                       
                         dense_features):
 
         device     = item_ids.device
@@ -1139,6 +1154,9 @@ class MLNARMModel(RecommenderModule):
         
         emb_last_ItemID = self.emb(last_ItemID)
         emb_last_domain = self.emb_domain(last_domain_idx)
+        emb_mode_domain = self.emb_domain(mode_domain_idx)
+        emb_mode_product = self.emb_product(mode_product_idx)
+        emb_mode_category = self.emb_category(mode_category_idx)
 
         # ItemID History
         embs       = self.emb_dropout(self.emb(seq))
@@ -1175,11 +1193,16 @@ class MLNARMModel(RecommenderModule):
         last_feat   = self.last_feat(torch.cat([emb_last_ItemID, 
                                                 emb_last_domain], 1))
 
-        c_t         = torch.cat([c_local, c_global, 
-                                word_emb,
-                                last_feat, 
-                                dense_features.float()], 1)
+        mode_feat   = self.mode_feat(torch.cat([emb_mode_domain, 
+                                                emb_mode_product,
+                                                emb_mode_category], 1))
 
+        # c_t         = torch.cat([c_local, c_global, 
+        #                         word_emb,
+        #                         last_feat, 
+        #                         mode_feat,
+        #                         dense_features.float()], 1)
+        c_t        = torch.cat([c_local, c_global], 1)
         c_t        = self.ct_dropout(c_t)        
 
         item_embs  = self.emb(torch.arange(self.n_item_dim).to(device).long())
@@ -1196,6 +1219,9 @@ class MLNARMModel(RecommenderModule):
                                     last_domain_idx,
                                     last_ItemID_title,
                                     last_event_search,
+                                    mode_category_idx,
+                                    mode_domain_idx,
+                                    mode_product_idx,                                          
                                     dense_features):
         
         scores = self.forward(session_ids, 
@@ -1207,6 +1233,215 @@ class MLNARMModel(RecommenderModule):
                                 last_domain_idx,
                                 last_ItemID_title,
                                 last_event_search,
+                                mode_category_idx,
+                                mode_domain_idx,
+                                mode_product_idx,                                      
+                                dense_features)
+
+        scores = scores[torch.arange(scores.size(0)),item_ids]
+
+        return scores
+
+
+class MLNARMModel2(RecommenderModule):
+    '''
+    https://github.com/Wang-Shuo/Neural-Attentive-Session-Based-Recommendation-PyTorch.git
+    '''
+    def __init__(
+        self,
+        project_config: ProjectConfig,
+        index_mapping: Dict[str, Dict[Any, int]],
+        n_factors: int,
+        n_layers: int,
+        hidden_size: int,
+        dense_size: int,
+        path_item_embedding: str,
+        from_index_mapping: str,
+        freeze_embedding: bool,        
+        dropout: float        
+    ):
+        super().__init__(project_config, index_mapping)
+
+        self.hidden_size    = hidden_size
+        self.n_layers       = n_layers
+        self.embedding_dim  = n_factors
+        #self.emb = nn.Embedding(self._n_items, self.embedding_dim, padding_idx = 0)
+        n_domain_dim    = self.index_mapping_max_value('domain_idx_history')
+        n_product_dim   = self.index_mapping_max_value('mode_product_id_history')
+        n_category_dim  = self.index_mapping_max_value('mode_category_idx_history')
+
+        self.emb_domain = nn.Embedding(n_domain_dim, self.embedding_dim)
+        self.emb_product = nn.Embedding(n_product_dim, self.embedding_dim)
+        self.emb_category = nn.Embedding(n_category_dim, self.embedding_dim)
+
+        self.emb        = load_embedding(self._n_items, n_factors, False, from_index_mapping, index_mapping, False)
+        n_time_dim      = 100
+        self.time_emb   = TimeEmbedding(n_time_dim, n_factors)
+
+        self.emb_dropout = nn.Dropout(dropout)
+        self.gru = nn.GRU(self.embedding_dim, self.hidden_size, self.n_layers)
+
+        self.a_1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.a_2 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.v_t = nn.Linear(self.hidden_size, 1, bias=False)
+        
+        self.ct_dropout = nn.Dropout(dropout)
+        self.activate_func = nn.SELU()
+
+        f_dense_output    = 10
+        output_dense_size = 2 * self.hidden_size + f_dense_output + 2 * n_factors
+        
+
+        self.mlp_dense = nn.Sequential(
+            nn.Linear(dense_size, f_dense_output),
+            self.activate_func,
+            nn.Linear(f_dense_output, f_dense_output),
+        )
+
+        self.mlp_last_features = nn.Sequential(
+            nn.Linear(3 * n_factors, n_factors),
+            self.activate_func,
+            nn.Linear(n_factors, n_factors),
+        )
+
+        self.mlp_mode_features = nn.Sequential(
+            nn.Linear(2 * n_factors, n_factors),
+            self.activate_func,
+            nn.Linear(n_factors, n_factors),
+        )
+
+        self.dense_out = nn.Sequential(
+            nn.BatchNorm1d(output_dense_size),
+            nn.Linear(output_dense_size, int(output_dense_size/2)),
+            self.activate_func,
+            nn.Linear(int(output_dense_size/2), self._n_items),
+        )
+
+        self.b = nn.Linear(self.embedding_dim, output_dense_size, bias=False)
+        
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    def index_mapping_max_value(self, key: str) -> int:
+        return max(self._index_mapping[key].values())+1
+
+    def narm(self, embs, hidden, mask = None):
+            
+        # GRU -RNN
+        gru_out, hidden = self.gru(embs, hidden)
+
+        # fetch the last hidden state of last timestamp
+        ht      = hidden[-1]
+        gru_out = gru_out.permute(1, 0, 2)
+
+        c_global = ht
+        q1 = self.a_1(gru_out.contiguous().view(-1, self.hidden_size)).view(gru_out.size())  
+        q2 = self.a_2(ht)
+
+        q2_expand = q2.unsqueeze(1).expand_as(q1)
+        q2_masked = mask.unsqueeze(2).expand_as(q1) * q2_expand
+
+        alpha   = self.v_t(torch.sigmoid(q1 + q2_masked)\
+                    .view(-1, self.hidden_size))\
+                    .view(mask.size())
+        c_local = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
+
+        return c_local, c_global
+        
+    def forward(self, session_ids, 
+                        item_ids, 
+                        item_history_ids, 
+                        domain_idx_history,
+                        time_history,
+                        last_ItemID,
+                        last_domain_idx,
+                        last_category_idx,
+                        last_product_id,                            
+                        text_history,
+                        mode_category_idx,
+                        mode_domain_idx,
+                        mode_product_idx,                       
+                        dense_features):
+
+        device = item_ids.device
+        seq    = item_history_ids.permute(1,0)  #(H, B, E)
+
+        emb_last_ItemID   = self.emb(last_ItemID)
+        emb_last_domain   = self.emb_domain(last_domain_idx)
+        emb_last_product  = self.emb_product(last_product_id)
+        emb_last_category = self.emb_category(last_category_idx)
+
+        emb_mode_domain   = self.emb_domain(mode_domain_idx)
+        emb_mode_product  = self.emb_product(mode_product_idx)
+        emb_mode_category = self.emb_category(mode_category_idx)
+
+        hidden  = self.init_hidden(seq.size(1)).to(device)
+        embs    = self.emb_dropout(self.emb(seq)) #(H, B, E)
+
+        # Add Time
+        t_embs  = self.time_emb(time_history.float().unsqueeze(2)).permute(1,0,2)  # (H, B, E)
+        embs    = (embs + t_embs)/2
+
+        # Add Mask
+        mask      = torch.where(seq.permute(1, 0) > PAD, torch.tensor([1.], device = device), 
+                         torch.tensor([0.], device = device))
+        
+        c_local, c_global = self.narm(embs, hidden, mask)
+
+
+        l_features  = self.mlp_last_features(torch.cat([emb_last_ItemID, 
+                                                        emb_last_domain,
+                                                        emb_last_category], 1))
+
+        m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
+                                                        emb_mode_category], 1))
+
+        d_features  = self.mlp_dense(dense_features.float())
+
+        
+        c_t         = torch.cat([c_local, 
+                                c_global,
+                                d_features,
+                                m_features,
+                                l_features], 1)
+
+        c_t         = self.ct_dropout(c_t)
+        
+        item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
+        scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
+
+        return scores
+
+    def init_hidden(self, batch_size):
+        return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
+        
+    def recommendation_score(self, session_ids, 
+                                    item_ids, 
+                                    item_history_ids, 
+                                    domain_idx_history,
+                                    time_history,
+                                    last_ItemID,
+                                    last_domain_idx,
+                                    last_category_idx,
+                                    last_product_id,
+                                    text_history,
+                                    mode_category_idx,
+                                    mode_domain_idx,
+                                    mode_product_idx,                                          
+                                    dense_features):
+        
+        scores = self.forward(session_ids, 
+                                item_ids, 
+                                item_history_ids, 
+                                domain_idx_history,
+                                time_history,
+                                last_ItemID,
+                                last_domain_idx,
+                                last_category_idx,
+                                last_product_id,                                
+                                text_history,
+                                mode_category_idx,
+                                mode_domain_idx,
+                                mode_product_idx,                                      
                                 dense_features)
 
         scores = scores[torch.arange(scores.size(0)),item_ids]
@@ -1428,9 +1663,6 @@ class MLTransformerModel(RecommenderModule):
 
         return scores
 
-
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
-
 class MLTransformerModel2(RecommenderModule):
     def __init__(
         self,
@@ -1631,7 +1863,6 @@ class MLTransformerModel2(RecommenderModule):
         scores = scores[torch.arange(scores.size(0)),item_ids]
 
         return scores
-
 
 class MLCaser(RecommenderModule):
     '''

@@ -35,6 +35,7 @@
 * SASRec (OK) https://github.com/pmixer/SASRec.pytorch/blob/master/model.py
 * Caser (OK) https://arxiv.org/pdf/1809.07426v1.pdf
 * BERT4Rec https://github.com/FeiSun/BERT4Rec
+* TailNet
 
 ## Papers
 
@@ -43,6 +44,7 @@
 * A Survey on Session-based Recommender Systems
 * https://arxiv.org/pdf/1205.2618.pdf
 * https://arxiv.org/pdf/1706.03847.pdf
+* https://arxiv.org/pdf/2007.12329.pdf (TailNet)
 
 
 ## 

@@ -262,7 +262,7 @@ class CustomCrossEntropyLoss(_Loss):
 
     def forward(self, input, target, domain_count):
         _loss = self.loss(input, target)
-        
+        #print()
         # Discount Popularity Bias
         #_popularity_bias = (self.c/torch.log(domain_count.float())) if self.c > 0 else 1
         #_loss = _loss*_popularity_bias

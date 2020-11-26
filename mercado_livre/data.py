@@ -76,6 +76,56 @@ WORD_UNK  = 18751
 WORD_PAD  = 18752
 WORD_DICT = 18753
 
+DATA_COLUMNS =  ["SessionID",
+                "ItemID",
+                "domain_idx",
+                "Timestamp",
+                "event_type_idx",
+                "last_category_idx",
+                "last_product_id",
+                "last_ItemID",
+                "last_ItemID_title",
+                "last_event_search",
+                "last_event_type_idx",
+                "last_domain_idx",
+                "step",
+                #"int_Timestamp",
+                "cum_Timestamp",
+                "last_price_norm",
+                "diff_price_norm",
+                "min_last_price_norm",
+                "max_last_price_norm",
+                "mean_last_price_norm",
+                "sum_last_price_norm",
+                #"step_history",
+                #"timestamp_history",
+                "cum_timestamp_history",
+                #"event_type_idx_history",
+                "category_idx_history",
+                #"condition_idx_history",
+                "domain_idx_history",
+                "product_id_history",
+                "price_history",
+                "ItemID_history",
+                "title_search_history",
+                "domain_count",
+                "item_id_count",
+                "mode_category_idx_history",
+                "mode_condition_idx_history",
+                "mode_domain_idx_history",
+                "mode_product_id_history",
+                "mode_event_type_idx_history",
+                "count_mode_category_idx_history",
+                "count_mode_condition_idx_history",
+                "count_mode_domain_idx_history",
+                "count_mode_product_id_history",
+                "count_mode_event_type_idx_history",
+                "count_event_type_idx_history__search",
+                "count_event_type_idx_history__view",
+                "count_condition_idx__new",
+                "count_condition_idx__used",
+                "perc_newlest_search",
+                "perc_event_view"]
 
 DEBUG       = False
 
@@ -88,6 +138,20 @@ if DEBUG:
     BASE_TEST_DATASET_FILE : str = os.path.join(OUTPUT_PATH, "mercado_livre", "mercado_livre", "sample_test_dataset.jl")
 
 import pandas as pd
+
+def deDupeDfCols(df, separator=''):
+    newcols = []
+
+    for col in df.columns:
+        if col not in newcols:
+            newcols.append(col)
+        else:
+            for i in range(2, 1000):
+                if (col + separator + str(i)) not in newcols:
+                    newcols.append(col + separator + str(i))
+                    break
+
+    return df.toDF(*newcols)
 
 def _map_to_pandas(rdds):
     """ Needs to be here due to pickling issues """
@@ -512,11 +576,14 @@ class SessionPrepareDataset(BasePySparkTask):
     def add_more_information(self, df):
         # Window Metrics
         w  = Window.partitionBy('SessionID').orderBy('Timestamp')
+
         w2 = Window.partitionBy(['SessionID', 'event_type_click']).orderBy('Timestamp')
 
         # Add Last Item
         
         df = df.withColumn("last_ItemID", lag(df.ItemID, 1).over(w2).cast("int")).fillna(-1, subset=['last_ItemID'])
+        df = df.withColumn("last_category_idx", lag(df.category_idx, 1).over(w2).cast("int")).fillna(-1, subset=['last_category_idx'])
+        df = df.withColumn("last_product_id", lag(df.product_id, 1).over(w2).cast("int")).fillna(-1, subset=['last_product_id'])
 
         word_pad_history = pad_history_norm(IntegerType())
         df = df.withColumn("last_ItemID_title", lag(df.title, 1).over(w2)).fillna("[]", subset=['last_ItemID_title'])
@@ -528,7 +595,7 @@ class SessionPrepareDataset(BasePySparkTask):
 
         df = df.withColumn("last_event_type_idx",   lag(df.event_type_idx, 1).over(w))
 
-        df = df.withColumn("last_title_search",  when(col("last_event_type_idx") == lit(3), col("last_event_search")).otherwise(col("last_ItemID_title")))
+        df = df.withColumn("last_title_search",  when(col("last_event_type_idx") == lit(ML_SEARCH), col("last_event_search")).otherwise(col("last_ItemID_title")))
         df = df.withColumn("last_title_search",  word_pad_history(col("last_title_search"), lit(15), lit(WORD_PAD)))
 
         # Add step
@@ -641,6 +708,13 @@ class SessionPrepareDataset(BasePySparkTask):
         df = df.withColumn(
             'ItemID_history', F.collect_list('ItemID').over(w2)
         )#\
+
+        #History Item
+        w3 = Window.partitionBy(['SessionID']).orderBy('Timestamp').rowsBetween(-3, Window.currentRow-1)#.rangeBetween(Window.currentRow, 5)
+        df = df.withColumn(
+            'title_search_history', F.collect_list('last_title_search').over(w3)
+        )#\
+        
 
         df = df.withColumn('ItemID_history', int_pad_history(df.ItemID_history, lit(self.history_window)))
 
@@ -810,60 +884,12 @@ class SessionPrepareDataset(BasePySparkTask):
         df = df.withColumn("product_id", df.product_id.cast(IntegerType()))
         df = df.withColumn("last_event_search", df.last_event_search.cast(StringType()))
         df = df.withColumn("last_title_search", df.last_title_search.cast(StringType()))
-
-        columns = ["SessionID",
-                "ItemID",
-                "domain_idx",
-                "Timestamp",
-                "event_type_idx",
-                "last_ItemID",
-                "last_ItemID_title",
-                "last_event_search",
-                "last_title_search",
-                "last_event_type_idx",
-                "last_domain_idx",
-                "step",
-                "int_Timestamp",
-                "cum_Timestamp",
-                "last_price_norm",
-                "diff_price_norm",
-                "min_last_price_norm",
-                "max_last_price_norm",
-                "mean_last_price_norm",
-                "sum_last_price_norm",
-                "step_history",
-                "timestamp_history",
-                "cum_timestamp_history",
-                "event_type_idx_history",
-                "category_idx_history",
-                "condition_idx_history",
-                "domain_idx_history",
-                "product_id_history",
-                "price_history",
-                "ItemID_history",
-                "domain_count",
-                "item_id_count",
-                "mode_category_idx_history",
-                "mode_condition_idx_history",
-                "mode_domain_idx_history",
-                "mode_product_id_history",
-                "mode_event_type_idx_history",
-                "count_mode_category_idx_history",
-                "count_mode_condition_idx_history",
-                "count_mode_domain_idx_history",
-                "count_mode_product_id_history",
-                "count_mode_event_type_idx_history",
-                "count_event_type_idx_history__search",
-                "count_event_type_idx_history__view",
-                "count_condition_idx__new",
-                "count_condition_idx__used",
-                "perc_newlest_search",
-                "perc_event_view"]
-
-        df = df.select(columns).orderBy(col("SessionID")).cache()
         
-        df.sample(fraction=1.0 if DEBUG else 0.01).toPandas().to_csv(self.output()[0].path, index=False)
-        df.write.parquet(self.output()[1].path)
+
+        df = df.orderBy(col("SessionID")).cache()
+        
+        df.select(DATA_COLUMNS).sample(fraction=1.0 if DEBUG else 0.01).toPandas().to_csv(self.output()[0].path, index=False)
+        deDupeDfCols(df, "_").write.parquet(self.output()[1].path)
 
 class SessionPrepareTestDataset(SessionPrepareDataset):
     sample_days: int = luigi.IntParameter(default=365)
@@ -898,8 +924,6 @@ class SessionPrepareLocalTestDataset(SessionPrepareDataset):
 
     def requires(self):
         return TextDataProcess()
-
-
 
 class SessionInteractionDataFrame(BasePrepareDataFrames):
     sample_days: int = luigi.IntParameter(default=16)
@@ -950,6 +974,11 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
     def transform_all(self, df):
         # Cast List()
+        columns = [ "title_search_history"]           
+        for c in columns:
+            if c in df.columns:
+                df[c] = df[c].progress_apply(lambda l: [list(i) for i in l])
+
         columns = [ "last_ItemID_title",
                     "step_history",     
                     "timestamp_history",                      
@@ -963,20 +992,23 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
                     "ItemID_history"]         
         
         for c in columns:
-            df[c] = df[c].progress_apply(list)
+            if c in df.columns:
+                df[c] = df[c].progress_apply(list)
         #from IPython import embed; embed()
         # Cast Int/Str
         columns_int = ["last_ItemID", "mode_category_idx_history", "mode_condition_idx_history",
                         "mode_domain_idx_history", "mode_product_id_history", "mode_event_type_idx_history"]
         for c in columns_int:
-            df[c] = df[c].progress_apply(lambda x: 0 if x == '' else x).fillna(0).progress_apply(int).progress_apply(str)
+            if c in df.columns:
+                df[c] = df[c].progress_apply(lambda x: 0 if x == '' else x).fillna(0).progress_apply(int).progress_apply(str)
 
         # Cast Int
         columns_int = ["last_ItemID"]
         for c in columns_int:
-            df[c] = df[c].fillna(0).progress_apply(int)
+            if c in df.columns:
+                df[c] = df[c].fillna(0).progress_apply(int)
 
-        df['visit'] = 1
+        #df['visit'] = 1
 
 
     def build_dense_features(self, df: pd.DataFrame, data_key: str):
@@ -1004,10 +1036,9 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         df['dense_features'] = list(np.around(self.scaler.transform(df[columns_vectorize_dense]), 3))
         df['dense_features'] = df['dense_features'].apply(list)
 
-
     def read_data_frame(self) -> pd.DataFrame:
-        #df = pd.read_csv(self.read_data_frame_path)#.sample(10000)
-        df = pd.read_parquet(self.read_data_frame_path)
+        df = pd.read_parquet(self.read_data_frame_path, columns=DATA_COLUMNS)
+
         return df
 
     def transform_data_frame(self, df: pd.DataFrame, data_key: str) -> pd.DataFrame:
@@ -1017,7 +1048,7 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
         if data_key == 'TEST_GENERATOR': 
             df = df[df['event_type_idx'] == ML_BUY] # buy
-            
+
         elif self.filter_only_buy:
             if self.sample_view > 0:
                 if data_key == 'VALIDATION_DATA':
@@ -1026,12 +1057,11 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
                     _sample_view_size = int(self.sample_view * (1-self.val_size))
 
                 df_buy  = df[df['event_type_idx'] == ML_BUY] # buy
-                df_view = df[df['event_type_idx'] != ML_BUY].sample(_sample_view_size) # view
+                df_view = df[df['event_type_idx'] != ML_BUY].sample(_sample_view_size, random_state=42) # view
 
                 df = pd.concat([df_buy, df_view])
             else:
                 df = df[df['event_type_idx'] == ML_BUY] # buy
-
 
         return df
 

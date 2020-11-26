@@ -311,8 +311,8 @@ if __name__ == '__main__':
 
      
   job = MercadoLivreTraining(
-    project="mercado_livre.config.mercado_livre_narm_custom",
-    recommender_module_class="model.MLNARMModel",
+    project="mercado_livre.config.mercado_livre_narm",
+    recommender_module_class="model.MLNARMModel2",
     recommender_extra_params={
       "n_factors": 100, 
       "hidden_size": 100,
@@ -323,13 +323,14 @@ if __name__ == '__main__':
       "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
       "freeze_embedding": False},
     data_frames_preparation_extra_params={
-      "sample_days": 30, 
+      "sample_days": 60, 
       "history_window": 20, 
       "column_stratification": "SessionID",
       "normalize_dense_features": "min_max",
-      "min_interactions": 2,
-      "filter_only_buy": True},
-    test_size= 0.1,
+      "min_interactions": 5,
+      "filter_only_buy": True,
+      "sample_view": 10000},
+    test_size= 0.0,
     val_size= 0.1,      
     test_split_type= "random",
     dataset_split_method="column",

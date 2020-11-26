@@ -300,8 +300,8 @@ class MercadoLivreTraining(SupervisedModelTraining):
         
         df_weights = pd.concat([self.train_dataset._data_frame[[self.project_config.output_column.name]], 
                     self.val_dataset._data_frame[[self.project_config.output_column.name]]])
-        weights    = df_weights[self.project_config.output_column.name].value_counts().sort_index().values
-        weights    = 1/np.array(list([1,1,1]) + list(weights))
+        weights    = 1/df_weights[self.project_config.output_column.name].value_counts().sort_index().values
+        weights    = np.array(list([0,0,0]) + list(weights))
         
         return weights
 
