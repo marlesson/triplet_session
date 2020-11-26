@@ -260,7 +260,7 @@ class CustomCrossEntropyLoss(_Loss):
         #from IPython import embed; embed()
         self.loss = nn.CrossEntropyLoss(reduction='none', weight=torch.FloatTensor(self.class_weights).cuda())
 
-    def forward(self, input, target, domain_count):
+    def forward(self, input, target):
         _loss = self.loss(input, target)
         #print()
         # Discount Popularity Bias

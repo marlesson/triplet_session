@@ -133,7 +133,7 @@ mercado_livre_narm_custom = ProjectConfig(
         Column("dense_features", IOType.FLOAT_ARRAY),
     ],
     output_column=Column("ItemID", IOType.INDEXABLE),
-    auxiliar_output_columns=[Column("item_id_count", IOType.NUMBER)],    
+    #auxiliar_output_columns=[Column("item_id_count", IOType.NUMBER)],    
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 

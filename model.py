@@ -1255,6 +1255,7 @@ class MLNARMModel2(RecommenderModule):
         n_layers: int,
         hidden_size: int,
         dense_size: int,
+        history_window: int,
         path_item_embedding: str,
         from_index_mapping: str,
         freeze_embedding: bool,        
@@ -1274,6 +1275,8 @@ class MLNARMModel2(RecommenderModule):
         self.emb_product = nn.Embedding(n_product_dim, self.embedding_dim)
         self.emb_category = nn.Embedding(n_category_dim, self.embedding_dim)
 
+        self.word_emb   = load_wordvec(self.embedding_dim, path_item_embedding, freeze_embedding)
+
         self.emb        = load_embedding(self._n_items, n_factors, False, from_index_mapping, index_mapping, False)
         n_time_dim      = 100
         self.time_emb   = TimeEmbedding(n_time_dim, n_factors)
@@ -1288,12 +1291,22 @@ class MLNARMModel2(RecommenderModule):
         self.ct_dropout = nn.Dropout(dropout)
         self.activate_func = nn.SELU()
 
+        # NLP Parans
+        num_filters    = 32
+        n_word_factors = 100
+        history_word_window = 5
+        filter_sizes: List[int] = [1, 3, 5]
+        conv_size_out  = len(filter_sizes) * num_filters
+
+        # f dense output
         f_dense_output    = 10
-        output_dense_size = 2 * self.hidden_size + f_dense_output + 2 * n_factors
-        
+        output_dense_size = 2 * self.hidden_size + conv_size_out + f_dense_output + 2 * n_factors
+
+        self.nlp_convs = nn.ModuleList(
+            [nn.Conv2d(history_word_window, num_filters, (K, n_word_factors)) for K in filter_sizes])
 
         self.mlp_dense = nn.Sequential(
-            nn.Linear(dense_size + 20, f_dense_output),
+            nn.Linear(dense_size + history_window, f_dense_output),
             self.activate_func,
             nn.Linear(f_dense_output, f_dense_output),
         )
@@ -1324,6 +1337,15 @@ class MLNARMModel2(RecommenderModule):
     def index_mapping_max_value(self, key: str) -> int:
         return max(self._index_mapping[key].values())+1
 
+    def conv_block(self, x):
+	# conv_out.size() = (batch_size, out_channels, dim, 1)
+        #x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.nlp_convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+
+        return x
+
     def narm(self, embs, hidden, mask = None):
             
         # GRU -RNN
@@ -1346,7 +1368,20 @@ class MLNARMModel2(RecommenderModule):
         c_local = torch.sum(alpha.unsqueeze(2).expand_as(gru_out) * gru_out, 1)
 
         return c_local, c_global
-        
+
+    def add_pad_word(self, target, max_length = 15, max_rows = 5):
+        if isinstance(target, torch.Tensor):
+            target = target.cpu().detach().numpy()
+
+        max_cols = max([len(row) for batch in target for row in batch])
+        #max_rows = 5 #max([len(batch) for batch in target])
+        target = [[[]] if len(t) == 0 else [list(i) for i in t] for t in target]
+        padded = [batch + [[WORD_PAD] * (max_cols)] * (max_rows - len(batch)) for batch in target]
+        padded = torch.tensor([row + [WORD_PAD] * (max_length - len(row)) for batch in padded for row in batch])
+        padded = padded.view(-1, max_rows, max_cols)
+
+        return padded
+
     def forward(self, session_ids, 
                         item_ids, 
                         item_history_ids, 
@@ -1374,6 +1409,12 @@ class MLNARMModel2(RecommenderModule):
         emb_mode_domain   = self.emb_domain(mode_domain_idx)
         emb_mode_product  = self.emb_product(mode_product_idx)
         emb_mode_category = self.emb_category(mode_category_idx)
+
+        word_idx          = self.add_pad_word(text_history).to(device)
+        word_emb          = self.emb_dropout(self.word_emb(word_idx)) # (B, W (5), S (15), E)
+        word_mask         = (word_idx != WORD_PAD).float()
+        word_mask         = word_mask.unsqueeze(1).repeat((1,word_emb.size(3),1,1)).permute(0, 2, 3, 1)
+        word_emb          = self.conv_block(word_emb * word_mask) # (B, K)
 
         hidden  = self.init_hidden(seq.size(1)).to(device)
         embs    = self.emb_dropout(self.emb(seq)) #(H, B, E)
@@ -1403,6 +1444,7 @@ class MLNARMModel2(RecommenderModule):
 
         c_t         = torch.cat([c_local, 
                                 c_global,
+                                word_emb,
                                 d_features,
                                 m_features,
                                 l_features], 1)

@@ -94,6 +94,7 @@ mars-gym run supervised \
   "dense_size": 19,
   "n_layers": 1, 
   "dropout": 0.2, 
+  "history_window": 20, 
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -122,7 +123,7 @@ mars-gym run supervised \
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____c6412a8466 \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____7a0a07366f \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -130,21 +131,20 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --local-scheduler \
 --local  
 
+
 # {'count': 1000,
-#  'mean_average_precision': 0.22638333333333333,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____c6412a8466',
-#  'mrr_at_10': 0.22638333333333333,
-#  'mrr_at_5': 0.2226,
-#  'ndcg_at_10': 0.27315739290219404,
-#  'ndcg_at_15': 0.27315739290219404,
-#  'ndcg_at_20': 0.27315739290219404,
-#  'ndcg_at_5': 0.26363389860138353,
-#  'ndcg_at_50': 0.27315739290219404,
-#  'ndcg_ml': 0.24395277500132767,
+#  'mean_average_precision': 0.2323575396825397,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____abfbd20759',
+#  'mrr_at_10': 0.2323575396825397,
+#  'mrr_at_5': 0.22601666666666664,
+#  'ndcg_at_10': 0.27772006790139675,
+#  'ndcg_at_15': 0.27772006790139675,
+#  'ndcg_at_20': 0.27772006790139675,
+#  'ndcg_at_5': 0.26145679679673073,
+#  'ndcg_at_50': 0.27772006790139675,
+#  'ndcg_ml': 0.24776399114100459,
 #  'percent_limit': 1.0,
-#  'precision_at_1': 0.181}
-
-
+#  'precision_at_1': 0.19}
 
 #######################################################
 
@@ -170,7 +170,7 @@ PYTHONPATH="."  luigi  \
   "filter_only_buy": true,
   "sample_view": 10000}' \
 --optimizer adam \
---optimizer-params '{"weight_decay": 1e-4}' \
+--optimizer-params '{"weight_decay": 1e-3}' \
 --test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \

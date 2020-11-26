@@ -98,7 +98,7 @@ DATA_COLUMNS =  ["SessionID",
                 "mean_last_price_norm",
                 "sum_last_price_norm",
                 #"step_history",
-                #"timestamp_history",
+                "timestamp_history",
                 "cum_timestamp_history",
                 #"event_type_idx_history",
                 "category_idx_history",
@@ -710,7 +710,7 @@ class SessionPrepareDataset(BasePySparkTask):
         )#\
 
         #History Item
-        w3 = Window.partitionBy(['SessionID']).orderBy('Timestamp').rowsBetween(-3, Window.currentRow-1)#.rangeBetween(Window.currentRow, 5)
+        w3 = Window.partitionBy(['SessionID']).orderBy('Timestamp').rowsBetween(-5, Window.currentRow-1)#.rangeBetween(Window.currentRow, 5) -3
         df = df.withColumn(
             'title_search_history', F.collect_list('last_title_search').over(w3)
         )#\

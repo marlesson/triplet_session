@@ -318,10 +318,11 @@ if __name__ == '__main__':
       "hidden_size": 100,
       "n_layers": 1,
       "dense_size": 19,
+      "history_window": 20,
       "dropout": 0.5,
       "from_index_mapping": False,
       "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
-      "freeze_embedding": False},
+      "freeze_embedding": True},
     data_frames_preparation_extra_params={
       "sample_days": 60, 
       "history_window": 20, 
@@ -337,7 +338,7 @@ if __name__ == '__main__':
     metrics=["loss"],
     epochs=2,
     batch_size=2,
-    loss_function="custom_ce",
+    loss_function="ce",
     run_evaluate=True,
     sample_size_eval=5000
   )      
