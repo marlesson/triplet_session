@@ -133,21 +133,20 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --local  
 
 
+
 {'count': 1000,
- 'mean_average_precision': 0.24566507936507936,
+ 'mean_average_precision': 0.24366904761904762,
  'model_task': 'SupervisedModelTraining____mars_gym_model_b____00c94553b8',
- 'mrr_at_10': 0.24566507936507936,
- 'mrr_at_5': 0.24036666666666667,
- 'ndcg_at_10': 0.2949218452324137,
- 'ndcg_at_15': 0.2949218452324137,
- 'ndcg_at_20': 0.2949218452324137,
- 'ndcg_at_5': 0.2810344049923796,
- 'ndcg_at_50': 0.2949218452324137,
- 'ndcg_ml': 0.25960550495464135,
+ 'mrr_at_10': 0.24366904761904762,
+ 'mrr_at_5': 0.24013333333333337,
+ 'ndcg_at_10': 0.29936018769932865,
+ 'ndcg_at_15': 0.29936018769932865,
+ 'ndcg_at_20': 0.29936018769932865,
+ 'ndcg_at_5': 0.2903277006440901,
+ 'ndcg_at_50': 0.29936018769932865,
+ 'ndcg_ml': 0.25930900881019453,
  'percent_limit': 1.0,
- 'precision_at_1': 0.199}
-
-
+ 'precision_at_1': 0.189}
 
 #######################################################
 
