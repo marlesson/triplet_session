@@ -95,6 +95,7 @@ mars-gym run supervised \
   "n_layers": 1, 
   "dropout": 0.2, 
   "history_window": 20, 
+  "history_word_window": 3,
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -115,7 +116,7 @@ mars-gym run supervised \
 --dataset-split-method column \
 --learning-rate 0.001 \
 --metrics='["loss"]' \
---generator-workers 5  \
+--generator-workers 0  \
 --batch-size 512 \
 --loss-function ce \
 --epochs 1000 \
@@ -123,7 +124,7 @@ mars-gym run supervised \
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____7a0a07366f \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____5cd2dc9b6d \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -133,18 +134,19 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 
 
 # {'count': 1000,
-#  'mean_average_precision': 0.2323575396825397,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____abfbd20759',
-#  'mrr_at_10': 0.2323575396825397,
-#  'mrr_at_5': 0.22601666666666664,
-#  'ndcg_at_10': 0.27772006790139675,
-#  'ndcg_at_15': 0.27772006790139675,
-#  'ndcg_at_20': 0.27772006790139675,
-#  'ndcg_at_5': 0.26145679679673073,
-#  'ndcg_at_50': 0.27772006790139675,
-#  'ndcg_ml': 0.24776399114100459,
+#  'mean_average_precision': 0.24214047619047618,
+#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____36fa4513f2',
+#  'mrr_at_10': 0.24214047619047618,
+#  'mrr_at_5': 0.23735000000000003,
+#  'ndcg_at_10': 0.2915048642524612,
+#  'ndcg_at_15': 0.2915048642524612,
+#  'ndcg_at_20': 0.2915048642524612,
+#  'ndcg_at_5': 0.2791338986013835,
+#  'ndcg_at_50': 0.2915048642524612,
+#  'ndcg_ml': 0.2542309224740349,
 #  'percent_limit': 1.0,
-#  'precision_at_1': 0.19}
+#  'precision_at_1': 0.195}
+
 
 #######################################################
 
