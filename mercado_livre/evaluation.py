@@ -63,7 +63,7 @@ from multiprocessing.pool import Pool
 from scipy import stats
 from train import MostPopularTraining, CoOccurrenceTraining
 
-ITEM_META_PATH = "../output/mercado_livre/dataset/item__processed.csv"
+ITEM_META_PATH = "output/mercado_livre/dataset/item__processed.csv"
 
 
 def ndcg_ml(r):
@@ -291,7 +291,7 @@ class MLEvaluationTask(BaseEvaluationTask):
 
         
         if self.model_eval == "model":
-            rank_list = self.mode_rank_list(generator, reverse_index_mapping)
+            rank_list = self.model_rank_list(generator, reverse_index_mapping)
         elif self.model_eval == "most_popular":
             rank_list = self.most_popular_rank_list(generator, reverse_index_mapping)
 
