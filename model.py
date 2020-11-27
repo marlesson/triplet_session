@@ -1301,7 +1301,7 @@ class MLNARMModel2(RecommenderModule):
 
         # f dense output
         f_dense_output    = 10
-        output_dense_size = 2 * self.hidden_size + conv_size_out + f_dense_output + 2 * n_factors
+        output_dense_size = 2 * self.hidden_size + conv_size_out + f_dense_output + 1 * n_factors
 
         self.nlp_convs = nn.ModuleList(
             [nn.Conv2d(self.history_word_window, num_filters, (K, n_word_factors)) for K in filter_sizes])
@@ -1443,8 +1443,8 @@ class MLNARMModel2(RecommenderModule):
                                                         emb_last_domain,
                                                         emb_last_category], 1))
 
-        m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
-                                                        emb_mode_category], 1))
+        #m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
+        #                                                emb_mode_category], 1))
 
         d_features  = self.mlp_dense(torch.cat([dense_features.float(),
                                                 price_history.float()], 1))
@@ -1453,7 +1453,6 @@ class MLNARMModel2(RecommenderModule):
                                 c_global,
                                 word_emb,
                                 d_features,
-                                m_features,
                                 l_features], 1)
 
         c_t         = self.ct_dropout(c_t)

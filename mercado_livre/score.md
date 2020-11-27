@@ -106,3 +106,23 @@ ML: 0.13510
  'ndcg_ml': 0.1233714427025859,
  'percent_limit': 1.0,
  'precision_at_1': 0.128}
+
+ # SupervisedModelTraining____mars_gym_model_b____00c94553b8
+
+Embs: 57880,   "sample_view": 30000
+
+ ML: 0.179495
+
+ {'count': 1000,
+ 'mean_average_precision': 0.24366904761904762,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____00c94553b8',
+ 'mrr_at_10': 0.24366904761904762,
+ 'mrr_at_5': 0.24013333333333337,
+ 'ndcg_at_10': 0.29936018769932865,
+ 'ndcg_at_15': 0.29936018769932865,
+ 'ndcg_at_20': 0.29936018769932865,
+ 'ndcg_at_5': 0.2903277006440901,
+ 'ndcg_at_50': 0.29936018769932865,
+ 'ndcg_ml': 0.25930900881019453,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.189}
