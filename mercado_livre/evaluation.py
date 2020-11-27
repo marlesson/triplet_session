@@ -61,8 +61,9 @@ from tqdm import tqdm
 import os
 from multiprocessing.pool import Pool
 from scipy import stats
+from train import MostPopularTraining, CoOccurrenceTraining
 
-ITEM_META_PATH = "/media/workspace/triplet_session/output/mercado_livre/dataset/item__processed.csv"
+ITEM_META_PATH = "../output/mercado_livre/dataset/item__processed.csv"
 
 
 def ndcg_ml(r):
@@ -159,7 +160,7 @@ class MLEvaluationTask(BaseEvaluationTask):
     normalize_dense_features: int = luigi.Parameter(default="min_max")
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
-    most_popular: bool = luigi.BoolParameter(default=False)
+    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular"], default="model")
 
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.2)
@@ -285,6 +286,65 @@ class MLEvaluationTask(BaseEvaluationTask):
         print(df.head())
         print(df.shape)
 
+        reverse_index_mapping    = self.model_training.reverse_index_mapping['ItemID']
+        reverse_index_mapping[1] = 0
+
+        
+        if self.model_eval == "model":
+            rank_list = self.mode_rank_list(generator, reverse_index_mapping)
+        elif self.model_eval == "most_popular":
+            rank_list = self.most_popular_rank_list(generator, reverse_index_mapping)
+
+
+        df_moda  = self.pos_process(rank_list)
+        rank_list = df_moda['reclist_2'].values
+        rank_list = np.array([np.array(r).astype(int) for r in rank_list])
+
+        #
+        df_moda.to_csv(self.output().path+'/df_submission.csv', index=False)
+        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), rank_list, fmt='%i', delimiter=',') 
+
+    def most_popular_rank_list(self, generator, reverse_index_mapping):
+        
+
+        most_popular = MostPopularTraining(project="mercado_livre.config.mercado_livre_interaction",
+                                          data_frames_preparation_extra_params=self.model_training.data_frames_preparation_extra_params,
+                                          test_size=self.model_training.test_size,
+                                          val_size=self.model_training.val_size,
+                                          test_split_type=self.model_training.test_split_type,
+                                          dataset_split_method=self.model_training.dataset_split_method)  #
+        most_popular.fit(self.model_training.train_data_frame)
+
+        scores    = []
+        rank_list = []
+
+        # Inference
+        for i, (x, _) in tqdm(enumerate(generator), total=len(generator)):
+            input_params = x if isinstance(x, list) or isinstance(x, tuple) else [x]
+
+            scores_batch = [] # nxk
+            item_idx = list(range(self.model_training.n_items))
+
+            for i in input_params[1]:
+                score = list(most_popular.item_counts.loc[item_idx].fillna(0).values)
+                scores_batch.append(score)
+
+            # Test
+            _sort_rank_list(scores_batch[0], index_mapping=reverse_index_mapping)
+
+            with Pool(3) as p:
+                _rank_list = list(tqdm(
+                    p.map(functools.partial(_sort_rank_list, index_mapping=reverse_index_mapping), scores_batch),
+                    total=len(scores_batch),
+                ))
+                rank_list.extend(_rank_list)
+
+            gc.collect()
+    
+        return rank_list
+
+    def model_rank_list(self, generator, reverse_index_mapping):
+
         # Gente Model
         model = self.model_training.get_trained_module()
         model.to(self.torch_device)
@@ -292,13 +352,6 @@ class MLEvaluationTask(BaseEvaluationTask):
 
         scores = []
         rank_list = []
-        #with Pool(os.cpu_count()) as p:
-        #    list(tqdm(p.starmap(_get_rank_list, )))
-
-        reverse_index_mapping    = self.model_training.reverse_index_mapping['ItemID']
-        reverse_index_mapping[1] = 0
-
-
         # Inference
         with torch.no_grad():
             for i, (x, _) in tqdm(enumerate(generator), total=len(generator)):
@@ -320,15 +373,8 @@ class MLEvaluationTask(BaseEvaluationTask):
                     rank_list.extend(_rank_list)
 
                 gc.collect()
-
-        df_moda  = self.pos_process(rank_list)
-        rank_list = df_moda['reclist_2'].values
-        rank_list = np.array([np.array(r).astype(int) for r in rank_list])
-
-        #from IPython import embed; embed()
-        df_moda.to_csv(self.output().path+'/df_submission.csv', index=False)
-        np.savetxt(self.output().path+'/submission_{}.csv'.format(self.task_name), rank_list, fmt='%i', delimiter=',') 
-
+        
+        return rank_list
 
 # PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 # --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
@@ -356,7 +402,7 @@ class EvaluationSubmission(luigi.Task):
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.4)
-    most_popular: bool = luigi.BoolParameter(default=False)
+    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular"], default="model")
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
@@ -366,7 +412,7 @@ class EvaluationSubmission(luigi.Task):
                                 batch_size=self.batch_size,
                                 history_window=self.history_window,
                                 local=self.local,
-                                most_popular=self.most_popular,
+                                model_eval=self.model_eval,
                                 sample_size=self.sample_size,
                                 percent_limit=self.percent_limit), SessionPrepareLocalTestDataset(history_window=self.history_window)
     

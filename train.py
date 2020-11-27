@@ -87,7 +87,7 @@ class CoOccurrenceTraining(DummyTraining):
         print("fit...")
         
         item_idx = np.unique(df_train.ItemID.values)
-        lists    = list(df_train.ItemIDHistory)
+        lists    = list(df_train.ItemID_history)
         cooc_matrix, to_id = self.create_co_occurences_matrix(item_idx, lists)
 
         self.columns_coocc = to_id
@@ -110,7 +110,7 @@ class CoOccurrenceTraining(DummyTraining):
         print("get_scores...")
         #
 
-        last_items = list(ob_dataset._data_frame.ItemIDHistory.apply(lambda l: l[0]))
+        last_items = list(ob_dataset._data_frame.ItemID_history.apply(lambda l: l[0]))
         next_items = list(ob_dataset._data_frame.ItemID.values)
 
         scores = []

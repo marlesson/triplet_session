@@ -16,7 +16,29 @@
 #  'precision_at_1': 0.169}
 
 
+########################################
+# Most Popular
+#########################################
 
+PYTHONPATH="."  luigi  \
+--module train MostPopularTraining  \
+--project mercado_livre.config.mercado_livre_interaction \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{
+  "sample_days": 60, 
+  "history_window": 20, 
+  "column_stratification": "SessionID",
+  "normalize_dense_features": "min_max",
+  "min_interactions": 5,
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+--test-size 0.0 \
+--val-size 0.1 \
+--test-split-type random \
+--dataset-split-method column \
+--obs "Most Popular"
+
+#########################
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_narm \
@@ -106,7 +128,7 @@ mars-gym run supervised \
   "normalize_dense_features": "min_max",
   "min_interactions": 5,
   "filter_only_buy": true,
-  "sample_view": 30000}' \
+  "sample_view": 10000}' \
 --optimizer adam \
 --optimizer-params '{"weight_decay": 1e-4}' \
 --test-size 0.0 \
@@ -124,8 +146,8 @@ mars-gym run supervised \
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____3d4c4e9ba0 \
---normalize-file-path "f0bb52b478_std_scaler.pkl" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____6ce3c531e5 \
+--normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
 --percent-limit 1 \
@@ -133,20 +155,20 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --local  
 
 
-
 {'count': 1000,
- 'mean_average_precision': 0.2513964285714286,
- 'model_task': 'SupervisedModelTraining____mars_gym_model_b____3d4c4e9ba0',
- 'mrr_at_10': 0.2513964285714286,
- 'mrr_at_5': 0.24684999999999996,
- 'ndcg_at_10': 0.2972330798466057,
- 'ndcg_at_15': 0.2972330798466057,
- 'ndcg_at_20': 0.2972330798466057,
- 'ndcg_at_5': 0.28534832007995475,
- 'ndcg_at_50': 0.2972330798466057,
- 'ndcg_ml': 0.2611949149388772,
+ 'mean_average_precision': 0.23992619047619046,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____6ce3c531e5',
+ 'mrr_at_10': 0.23992619047619046,
+ 'mrr_at_5': 0.23723333333333335,
+ 'ndcg_at_10': 0.27702327341875604,
+ 'ndcg_at_15': 0.27702327341875604,
+ 'ndcg_at_20': 0.27702327341875604,
+ 'ndcg_at_5': 0.2701096119636571,
+ 'ndcg_at_50': 0.27702327341875604,
+ 'ndcg_ml': 0.23637290482446024,
  'percent_limit': 1.0,
- 'precision_at_1': 0.208}
+ 'precision_at_1': 0.204}
+
 
 #######################################################
 

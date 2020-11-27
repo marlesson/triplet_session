@@ -16,9 +16,9 @@ mercado_livre_interaction = ProjectConfig(
     timestamp_column_name="Timestamp",
     available_arms_column_name="",
     other_input_columns=[
-        Column("ItemIDHistory", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
+        Column("ItemID_history", IOType.INDEXABLE_ARRAY, same_index_as="ItemID"),
     ],
-    output_column=Column("visit", IOType.NUMBER),
+    output_column=Column("ItemID", IOType.INDEXABLE),
     recommender_type=RecommenderType.USER_BASED_COLLABORATIVE_FILTERING,
 )
 
