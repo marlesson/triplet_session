@@ -612,6 +612,7 @@ class SessionPrepareDataset(BasePySparkTask):
         # 1546308000 = '2019-01-01 00:00:00'
         df = df.withColumn('int_Timestamp', F.floor((df.Timestamp.cast("int")-lit(1546308000))/lit(60)) )
         df = df.withColumn('cum_Timestamp', F.sum('diff_Timestamp').over(w)).fillna(0, subset=['cum_Timestamp'])      
+        #df = df.withColumn('cum_Timestamp', df.cum_Timestamp/F.max('cum_Timestamp'))      
 
         # Add Scaler Price
         summary =  df.filter(df.event_type_idx == ML_VIEW).select([mean('price').alias('mu'), stddev('price').alias('sigma')])\
@@ -835,8 +836,15 @@ class SessionPrepareDataset(BasePySparkTask):
                     .select("SessionID", "ItemID", "Timestamp", 
                             "event_type_idx", "event_search", "domain_count", "item_id_count")#.sample(fraction=0.01)#.limit(1000)
 
-        df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
-            
+        # Add new information
+        df = df.withColumn('event_type_click',   when(col('event_type_idx') == ML_SEARCH, 0).otherwise(1))
+
+
+        #df = df.orderBy(col('Timestamp'), col('SessionID'))
+        #df = df.orderBy(col('Timestamp').desc()).dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search']) #TODO  ajuda ou atrapalha?
+        
+
+
         if not self.no_filter_data:
             # Drop duplicate item in that same session
             df = df.dropDuplicates(['SessionID', 'Timestamp', 'event_type_idx']) 
@@ -850,8 +858,6 @@ class SessionPrepareDataset(BasePySparkTask):
         # Fillna
         df = self.fillna(df)
 
-        # Add new information
-        df = df.withColumn('event_type_click',   when(col('event_type_idx') == ML_SEARCH, 0).otherwise(1))
 
         # Add more information
         df = self.add_more_information(df)
@@ -876,8 +882,11 @@ class SessionPrepareDataset(BasePySparkTask):
 
         # vectorize dense features
         #df = self.vectorize_dense(df)
-
         # cast
+        df = df.dropDuplicates(['SessionID', 'ItemID', 'event_type_idx', 'event_search', 'last_event_type_idx'])
+        df = df.filter((df.event_type_idx == ML_BUY) | (df.last_ItemID != df.ItemID)) # TODO drop last_ItemID -> ItemID
+        
+
         df = df.cache()
 
         df = df.withColumn("last_ItemID", df.last_ItemID.cast(IntegerType()))

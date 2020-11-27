@@ -1256,6 +1256,7 @@ class MLNARMModel2(RecommenderModule):
         hidden_size: int,
         dense_size: int,
         history_window: int,
+        history_word_window: int,
         path_item_embedding: str,
         from_index_mapping: str,
         freeze_embedding: bool,        
@@ -1294,16 +1295,16 @@ class MLNARMModel2(RecommenderModule):
         # NLP Parans
         num_filters    = 32
         n_word_factors = 100
-        history_word_window = 5
+        self.history_word_window = history_word_window
         filter_sizes: List[int] = [1, 3, 5]
         conv_size_out  = len(filter_sizes) * num_filters
 
         # f dense output
         f_dense_output    = 10
-        output_dense_size = 2 * self.hidden_size + conv_size_out + f_dense_output + 2 * n_factors
+        output_dense_size = 2 * self.hidden_size + conv_size_out + f_dense_output + 1 * n_factors
 
         self.nlp_convs = nn.ModuleList(
-            [nn.Conv2d(history_word_window, num_filters, (K, n_word_factors)) for K in filter_sizes])
+            [nn.Conv2d(self.history_word_window, num_filters, (K, n_word_factors)) for K in filter_sizes])
 
         self.mlp_dense = nn.Sequential(
             nn.Linear(dense_size + history_window, f_dense_output),
@@ -1369,19 +1370,31 @@ class MLNARMModel2(RecommenderModule):
 
         return c_local, c_global
 
-    def add_pad_word(self, target, max_length = 15, max_rows = 5):
+    def add_pad_word(self, target, device, max_length = 15, max_rows = 5):
         if isinstance(target, torch.Tensor):
             target = target.cpu().detach().numpy()
 
-        max_cols = max([len(row) for batch in target for row in batch])
+        max_cols = max_length #max([len(row) for batch in target for row in batch])
         #max_rows = 5 #max([len(batch) for batch in target])
-        target = [[[]] if len(t) == 0 else [list(i) for i in t] for t in target]
+        target = [[[]] if len(t) == 0 else [list(i) for i in t][::-1][:max_rows][::-1] for t in target]
         padded = [batch + [[WORD_PAD] * (max_cols)] * (max_rows - len(batch)) for batch in target]
-        padded = torch.tensor([row + [WORD_PAD] * (max_length - len(row)) for batch in padded for row in batch])
-        padded = padded.view(-1, max_rows, max_cols)
+        tensor = torch.tensor([row + [WORD_PAD] * (max_length - len(row)) for batch in padded for row in batch], device=device).view(-1, max_rows, max_cols)
 
-        return padded
+        del padded
+        del target
 
+        return tensor
+
+    def word_emb_mod(self, text_history, device):
+        word_idx          = self.add_pad_word(text_history, device, max_rows=self.history_word_window)
+        word_emb          = self.emb_dropout(self.word_emb(word_idx)) # (B, W (5), S (15), E)
+        word_mask         = (word_idx != WORD_PAD).float().unsqueeze(1).repeat((1,word_emb.size(3),1,1)).permute(0, 2, 3, 1)
+        
+        return word_emb, word_mask
+
+    def init_hidden(self, batch_size, device):
+        return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True, device=device)
+        
     def forward(self, session_ids, 
                         item_ids, 
                         item_history_ids, 
@@ -1410,18 +1423,15 @@ class MLNARMModel2(RecommenderModule):
         emb_mode_product  = self.emb_product(mode_product_idx)
         emb_mode_category = self.emb_category(mode_category_idx)
 
-        word_idx          = self.add_pad_word(text_history).to(device)
-        word_emb          = self.emb_dropout(self.word_emb(word_idx)) # (B, W (5), S (15), E)
-        word_mask         = (word_idx != WORD_PAD).float()
-        word_mask         = word_mask.unsqueeze(1).repeat((1,word_emb.size(3),1,1)).permute(0, 2, 3, 1)
+        word_emb, word_mask = self.word_emb_mod(text_history, device) # (B, W (5), S (15), E)
         word_emb          = self.conv_block(word_emb * word_mask) # (B, K)
 
-        hidden  = self.init_hidden(seq.size(1)).to(device)
+        hidden  = self.init_hidden(seq.size(1), device)
         embs    = self.emb_dropout(self.emb(seq)) #(H, B, E)
 
         # Add Time
         t_embs  = self.time_emb(time_history.float().unsqueeze(2)).permute(1,0,2)  # (H, B, E)
-        embs    = (embs + t_embs)/2
+        #embs    = (embs + t_embs)/2
 
         # Add Mask
         mask      = torch.where(seq.permute(1, 0) > PAD, torch.tensor([1.], device = device), 
@@ -1429,38 +1439,29 @@ class MLNARMModel2(RecommenderModule):
         
         c_local, c_global = self.narm(embs, hidden, mask)
 
-
         l_features  = self.mlp_last_features(torch.cat([emb_last_ItemID, 
                                                         emb_last_domain,
                                                         emb_last_category], 1))
 
-        m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
-                                                        emb_mode_category], 1))
+        #m_features  = self.mlp_mode_features(torch.cat([emb_mode_domain, 
+        #                                                emb_mode_category], 1))
 
         d_features  = self.mlp_dense(torch.cat([dense_features.float(),
                                                 price_history.float()], 1))
-
-        
 
         c_t         = torch.cat([c_local, 
                                 c_global,
                                 word_emb,
                                 d_features,
-                                m_features,
                                 l_features], 1)
 
         c_t         = self.ct_dropout(c_t)
         
-        #scores      = F.softmax(self.dense_out(c_t), dim=1)
-        
-        item_embs   = self.emb(torch.arange(self._n_items).to(device).long())
+        item_embs   = self.emb(torch.arange(self._n_items, device=device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
 
         return scores
 
-    def init_hidden(self, batch_size):
-        return torch.zeros((self.n_layers, batch_size, self.hidden_size), requires_grad=True)
-        
     def recommendation_score(self, session_ids, 
                                     item_ids, 
                                     item_history_ids, 

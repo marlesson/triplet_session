@@ -16,7 +16,29 @@
 #  'precision_at_1': 0.169}
 
 
+########################################
+# Most Popular
+#########################################
 
+PYTHONPATH="."  luigi  \
+--module train MostPopularTraining  \
+--project mercado_livre.config.mercado_livre_interaction \
+--local-scheduler  \
+--data-frames-preparation-extra-params '{
+  "sample_days": 60, 
+  "history_window": 20, 
+  "column_stratification": "SessionID",
+  "normalize_dense_features": "min_max",
+  "min_interactions": 5,
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+--test-size 0.0 \
+--val-size 0.1 \
+--test-split-type random \
+--dataset-split-method column \
+--obs "Most Popular"
+
+#########################
 
 mars-gym run supervised \
 --project mercado_livre.config.mercado_livre_narm \
@@ -95,6 +117,7 @@ mars-gym run supervised \
   "n_layers": 1, 
   "dropout": 0.2, 
   "history_window": 20, 
+  "history_word_window": 3,
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -115,15 +138,15 @@ mars-gym run supervised \
 --dataset-split-method column \
 --learning-rate 0.001 \
 --metrics='["loss"]' \
---generator-workers 5  \
+--generator-workers 0  \
 --batch-size 512 \
 --loss-function ce \
 --epochs 1000 \
---obs ""
+--obs "1"
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____7a0a07366f \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____6ce3c531e5 \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -132,19 +155,20 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --local  
 
 
-# {'count': 1000,
-#  'mean_average_precision': 0.2323575396825397,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____abfbd20759',
-#  'mrr_at_10': 0.2323575396825397,
-#  'mrr_at_5': 0.22601666666666664,
-#  'ndcg_at_10': 0.27772006790139675,
-#  'ndcg_at_15': 0.27772006790139675,
-#  'ndcg_at_20': 0.27772006790139675,
-#  'ndcg_at_5': 0.26145679679673073,
-#  'ndcg_at_50': 0.27772006790139675,
-#  'ndcg_ml': 0.24776399114100459,
-#  'percent_limit': 1.0,
-#  'precision_at_1': 0.19}
+{'count': 1000,
+ 'mean_average_precision': 0.23992619047619046,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____6ce3c531e5',
+ 'mrr_at_10': 0.23992619047619046,
+ 'mrr_at_5': 0.23723333333333335,
+ 'ndcg_at_10': 0.27702327341875604,
+ 'ndcg_at_15': 0.27702327341875604,
+ 'ndcg_at_20': 0.27702327341875604,
+ 'ndcg_at_5': 0.2701096119636571,
+ 'ndcg_at_50': 0.27702327341875604,
+ 'ndcg_ml': 0.23637290482446024,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.204}
+
 
 #######################################################
 
@@ -158,6 +182,8 @@ PYTHONPATH="."  luigi  \
   "dense_size": 19,
   "n_layers": 1, 
   "dropout": 0.2, 
+  "history_window": 20, 
+  "history_word_window": 3,
   "from_index_mapping": false,
   "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' \
@@ -168,9 +194,9 @@ PYTHONPATH="."  luigi  \
   "normalize_dense_features": "min_max",
   "min_interactions": 5,
   "filter_only_buy": true,
-  "sample_view": 10000}' \
+  "sample_view": 30000}' \
 --optimizer adam \
---optimizer-params '{"weight_decay": 1e-3}' \
+--optimizer-params '{"weight_decay": 1e-4}' \
 --test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
@@ -178,18 +204,19 @@ PYTHONPATH="."  luigi  \
 --dataset-split-method column \
 --learning-rate 0.001 \
 --metrics='["loss"]' \
---generator-workers 5  \
+--generator-workers 0  \
 --batch-size 512 \
 --loss-function custom_ce \
 --epochs 1000 \
 --local-scheduler \
---obs ""
+--obs "1"
+
 
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
---model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____c6412a8466 \
---normalize-file-path "5623558488_std_scaler.pkl" \
+--model-task-class "train.MercadoLivreTraining" \
+--model-task-id MercadoLivreTraining____mars_gym_model_b____ac1489a46d \
+--normalize-file-path "f0bb52b478_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
 --percent-limit 1 \
