@@ -159,6 +159,8 @@ class MLEvaluationTask(BaseEvaluationTask):
     normalize_dense_features: int = luigi.Parameter(default="min_max")
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
+    most_popular: bool = luigi.BoolParameter(default=False)
+
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.2)
 
@@ -354,6 +356,7 @@ class EvaluationSubmission(luigi.Task):
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.4)
+    most_popular: bool = luigi.BoolParameter(default=False)
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
@@ -363,6 +366,7 @@ class EvaluationSubmission(luigi.Task):
                                 batch_size=self.batch_size,
                                 history_window=self.history_window,
                                 local=self.local,
+                                most_popular=self.most_popular,
                                 sample_size=self.sample_size,
                                 percent_limit=self.percent_limit), SessionPrepareLocalTestDataset(history_window=self.history_window)
     
@@ -473,7 +477,8 @@ class EvaluationSubmission(luigi.Task):
             "ndcg_ml": df["ndcg_ml"].mean(),
         }
         pprint.pprint(metrics)
-
+        
+        df.to_csv(os.path.join(self.input()[0].path, "eval_dataset.csv"))
         with open(
             os.path.join(self.input()[0].path, "metrics.json"), "w"
         ) as metrics_file:
