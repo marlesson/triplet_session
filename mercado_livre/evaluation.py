@@ -160,7 +160,7 @@ class MLEvaluationTask(BaseEvaluationTask):
     normalize_dense_features: int = luigi.Parameter(default="min_max")
     normalize_file_path: str = luigi.Parameter(default=None)
     local: bool = luigi.BoolParameter(default=False)
-    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular"], default="model")
+    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular", "coocorrence"], default="model")
 
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.2)
@@ -294,6 +294,8 @@ class MLEvaluationTask(BaseEvaluationTask):
             rank_list = self.model_rank_list(generator, reverse_index_mapping)
         elif self.model_eval == "most_popular":
             rank_list = self.most_popular_rank_list(generator, reverse_index_mapping)
+        elif self.model_eval == "coocorrence":
+            rank_list = self.coocorrence_rank_list(generator, reverse_index_mapping)
 
 
         df_moda  = self.pos_process(rank_list)
@@ -327,6 +329,49 @@ class MLEvaluationTask(BaseEvaluationTask):
 
             for i in input_params[1]:
                 score = list(most_popular.item_counts.loc[item_idx].fillna(0).values)
+                scores_batch.append(score)
+
+            # Test
+            _sort_rank_list(scores_batch[0], index_mapping=reverse_index_mapping)
+
+            with Pool(3) as p:
+                _rank_list = list(tqdm(
+                    p.map(functools.partial(_sort_rank_list, index_mapping=reverse_index_mapping), scores_batch),
+                    total=len(scores_batch),
+                ))
+                rank_list.extend(_rank_list)
+
+            gc.collect()
+    
+        return rank_list
+
+
+    def coocorrence_rank_list(self, generator, reverse_index_mapping):
+        
+
+        cooccurrence = CoOccurrenceTraining(project="mercado_livre.config.mercado_livre_interaction",
+                                          data_frames_preparation_extra_params=self.model_training.data_frames_preparation_extra_params,
+                                          test_size=self.model_training.test_size,
+                                          val_size=self.model_training.val_size,
+                                          test_split_type=self.model_training.test_split_type,
+                                          dataset_split_method=self.model_training.dataset_split_method)  #
+        cooccurrence.fit(self.model_training.train_data_frame)
+
+        scores    = []
+        rank_list = []
+
+        # Inference
+        for i, (x, _) in tqdm(enumerate(generator), total=len(generator)):
+            input_params = x if isinstance(x, list) or isinstance(x, tuple) else [x]
+
+            scores_batch = [] # nxk
+            item_idx = list(range(self.model_training.n_items))
+            for item_history in input_params[2]:
+                last_item_idx = item_history.detach().cpu().numpy()[0]
+
+                score = [cooccurrence.get_score(last_item_idx, i) for i in  item_idx]
+                #from IPython import embed; embed()
+
                 scores_batch.append(score)
 
             # Test
@@ -402,7 +447,7 @@ class EvaluationSubmission(luigi.Task):
     local: bool = luigi.BoolParameter(default=False)
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.4)
-    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular"], default="model")
+    model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular", "coocorrence"], default="model")
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
