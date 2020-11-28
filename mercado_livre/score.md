@@ -166,3 +166,71 @@ Embs: 57880,   "sample_view": 30000
     "ndcg_at_50": 0.3480408450537393,
     "ndcg_ml": 0.2915108439658228
 }
+
+
+## Submission
+
+#### Train 5 k_fold models + 1 completo (lembrar de adicionar o máximo de dados que puder, tirar o 
+#### local_test no caso, ao menos no completo )
+
+mars-gym run supervised \
+--project mercado_livre.config.mercado_livre_narm \
+--recommender-module-class model.MLNARMModel2 \
+--recommender-extra-params '{
+  "n_factors": 100, 
+  "hidden_size": 200, 
+  "dense_size": 19,
+  "n_layers": 1, 
+  "dropout": 0.2, 
+  "history_window": 20, 
+  "history_word_window": 3,
+  "from_index_mapping": false,
+  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "freeze_embedding": true}' \
+--data-frames-preparation-extra-params '{
+  "sample_days": 60, 
+  "history_window": 20, 
+  "column_stratification": "SessionID",
+  "normalize_dense_features": "min_max",
+  "min_interactions": 5,
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+--optimizer radam \
+--optimizer-params '{"weight_decay": 1e-05}' \
+--test-size 0.0 \
+--val-size 0.1 \
+--early-stopping-min-delta 0.0001 \
+--test-split-type random \
+--dataset-split-method k_fold \
+--n-splits 5 \
+--split-index 0 \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 5  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 100 \
+--obs "k_fold@1 "
+
+### Generate submission with 100 registros cada, dá 6 arquivos.
+### é bom testar local
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____897c16bdda \
+--normalize-file-path "5623558488_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--percent-limit 1 \
+--local-scheduler \
+--submission-size 100 \
+--model-eval "model" \
+--local  
+
+### Unificar o ensamble com notebook "Rank Ensamble", gera 4 arquivos devido as estratégias
+### instant_runoff, borda, dowdall, average_rank
+
+"Rank Ensamble".yml
+
+
+### Otimiza o arquivo final com a normalização do dominio, limitando em 10 recomendações. Usa o notebook 

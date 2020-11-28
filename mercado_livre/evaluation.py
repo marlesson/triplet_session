@@ -164,6 +164,7 @@ class MLEvaluationTask(BaseEvaluationTask):
 
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.2)
+    submission_size: int =  luigi.IntParameter(default=10)
 
     @property
     def task_name(self):
@@ -239,13 +240,13 @@ class MLEvaluationTask(BaseEvaluationTask):
         df_moda['reclist_2'] = df_moda.apply(lambda row: _sorte_by_domain_moda(
                         row['reclist'], 
                         row['relevance_list'], 
-                        row['count'], self.percent_limit)[:10],  axis=1)
+                        row['count'], self.percent_limit)[:self.submission_size],  axis=1)
         
 
         df_moda['domainlist_2'] = df_moda.apply(lambda row: _sorte_by_domain_moda(
                         row['domainlist'], 
                         row['relevance_list'], 
-                        row['count'], self.percent_limit)[:10],  axis=1)
+                        row['count'], self.percent_limit)[:self.submission_size],  axis=1)
 
 
 
@@ -449,6 +450,7 @@ class EvaluationSubmission(luigi.Task):
     percent_limit: float = luigi.FloatParameter(default=0.4)
     model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular", "coocorrence"], default="model")
     eval_reclist: str = luigi.Parameter(default=None)
+    submission_size: int =  luigi.IntParameter(default=10)
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
@@ -460,11 +462,15 @@ class EvaluationSubmission(luigi.Task):
                                 local=self.local,
                                 model_eval=self.model_eval,
                                 sample_size=self.sample_size,
-                                percent_limit=self.percent_limit), SessionPrepareLocalTestDataset(history_window=self.history_window)
+                                percent_limit=self.percent_limit,
+                                submission_size=self.submission_size), SessionPrepareLocalTestDataset(history_window=self.history_window)
     
 
     def output(self):
-        return luigi.LocalTarget(os.path.join(self.input()[0].path, "metrics.json"))
+        if self.eval_reclist:
+            return luigi.LocalTarget(os.path.join(self.input()[0].path, self.eval_reclist+"_metrics.json"))
+        else:
+            return luigi.LocalTarget(os.path.join(self.input()[0].path, "metrics.json"))
 
     def run(self):
         print("\n==> ", self.input()[0].path, "\n")

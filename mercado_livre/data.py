@@ -960,6 +960,10 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
         return "Timestamp"
 
     @property
+    def stratification_property(self) -> str:
+        return "ItemID"
+
+    @property
     def item_property(self) -> str:
         return "ItemID"
 
@@ -1060,11 +1064,13 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
 
         elif self.filter_only_buy:
             if self.sample_view > 0:
-                if data_key == 'VALIDATION_DATA':
-                    _sample_view_size = int(self.sample_view * self.val_size)
-                else:
-                    _sample_view_size = int(self.sample_view * (1-self.val_size))
+                _val_size = 1.0/self.n_splits if self.dataset_split_method == "k_fold" else self.val_size
 
+                if data_key == 'VALIDATION_DATA':
+                    _sample_view_size = int(self.sample_view * _val_size)
+                else:
+                    _sample_view_size = int(self.sample_view * (1-_val_size))
+                
                 df_buy  = df[df['event_type_idx'] == ML_BUY] # buy
                 df_view = df[df['event_type_idx'] != ML_BUY].sample(_sample_view_size, random_state=42) # view
 
