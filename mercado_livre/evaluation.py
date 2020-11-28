@@ -448,6 +448,7 @@ class EvaluationSubmission(luigi.Task):
     sample_size: int = luigi.Parameter(default=1000)
     percent_limit: float = luigi.FloatParameter(default=0.4)
     model_eval: str = luigi.ChoiceParameter(choices=["model", "most_popular", "coocorrence"], default="model")
+    eval_reclist: str = luigi.Parameter(default=None)
 
     def requires(self):
         return MLEvaluationTask(model_task_class=self.model_task_class,
@@ -466,9 +467,14 @@ class EvaluationSubmission(luigi.Task):
         return luigi.LocalTarget(os.path.join(self.input()[0].path, "metrics.json"))
 
     def run(self):
+        print("\n==> ", self.input()[0].path, "\n")
         df: pd.DataFrame = pd.read_parquet(self.input()[1][1].path)#.sample(n=self.sample_size, random_state=42, replace=True)#, usecols=['ItemID']).sample(n=self.sample_size, random_state=42, replace=True)
-        arr_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
         df_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/df_submission.csv')
+
+        if self.eval_reclist is None:
+            arr_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
+        else:
+            arr_sub: pd.DataFrame = pd.read_csv(self.eval_reclist, header=None)
 
         if not self.local:
             return
