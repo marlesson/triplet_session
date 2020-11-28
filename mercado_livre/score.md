@@ -126,3 +126,43 @@ Embs: 57880,   "sample_view": 30000
  'ndcg_ml': 0.25930900881019453,
  'percent_limit': 1.0,
  'precision_at_1': 0.189}
+
+
+# SupervisedModelTraining____mars_gym_model_b____06e74a0146
+
+ ML? 0.20194	
+
+ {'count': 1000,
+ 'mean_average_precision': 0.2677611111111111,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____06e74a0146',
+ 'mrr_at_10': 0.2677611111111111,
+ 'mrr_at_5': 0.26526666666666665,
+ 'ndcg_at_10': 0.30712078947113514,
+ 'ndcg_at_15': 0.30712078947113514,
+ 'ndcg_at_20': 0.30712078947113514,
+ 'ndcg_at_5': 0.3006351645788738,
+ 'ndcg_at_50': 0.30712078947113514,
+ 'ndcg_ml': 0.2636584813154937,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.229}
+
+
+# SupervisedModelTraining____mars_gym_model_b____d9c9625fad
+
+ ML:  0.20554
+
+ {
+    "model_task": "SupervisedModelTraining____mars_gym_model_b____d9c9625fad",
+    "percent_limit": 1.0,
+    "count": 1000,
+    "mean_average_precision": 0.29698928571428573,
+    "precision_at_1": 0.247,
+    "mrr_at_5": 0.29375,
+    "mrr_at_10": 0.29698928571428573,
+    "ndcg_at_5": 0.3397346581878777,
+    "ndcg_at_10": 0.3480408450537393,
+    "ndcg_at_15": 0.3480408450537393,
+    "ndcg_at_20": 0.3480408450537393,
+    "ndcg_at_50": 0.3480408450537393,
+    "ndcg_ml": 0.2915108439658228
+}

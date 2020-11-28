@@ -78,7 +78,7 @@ SupervisedModelTraining____mars_gym_model_b____dfeb3adddb
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____dcfb59ccb4 \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____bec91f5e17 \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -86,31 +86,24 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --local-scheduler \
 --local  
 
-
-
-# {'count': 1000,
-#  'mean_average_precision': 0.20350119047619045,
-#  'model_task': 'SupervisedModelTraining____mars_gym_model_b____dcfb59ccb4',
-#  'mrr_at_10': 0.20350119047619045,
-#  'mrr_at_5': 0.1995,
-#  'ndcg_at_10': 0.24155133576128082,
-#  'ndcg_at_15': 0.24155133576128082,
-#  'ndcg_at_20': 0.24155133576128082,
-#  'ndcg_at_5': 0.23140290761536758,
-#  'ndcg_at_50': 0.24155133576128082,
-#  'ndcg_ml': 0.2105879334889616,
-#  'percent_limit': 1.0,
-#  'precision_at_1': 0.167}
-
+{'count': 1000,
+ 'mean_average_precision': 0.2677611111111111,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____06e74a0146',
+ 'mrr_at_10': 0.2677611111111111,
+ 'mrr_at_5': 0.26526666666666665,
+ 'ndcg_at_10': 0.30712078947113514,
+ 'ndcg_at_15': 0.30712078947113514,
+ 'ndcg_at_20': 0.30712078947113514,
+ 'ndcg_at_5': 0.3006351645788738,
+ 'ndcg_at_50': 0.30712078947113514,
+ 'ndcg_ml': 0.2636584813154937,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.229}
 
 
 
 #--------------------
-
-mars-gym run supervised \
---project mercado_livre.config.mercado_livre_narm \
---recommender-module-class model.MLNARMModel2 \
---recommender-extra-params '{
+mars-gym run supervised --project mercado_livre.config.mercado_livre_narm --recommender-module-class model.MLNARMModel2 --recommender-extra-params '{
   "n_factors": 100, 
   "hidden_size": 200, 
   "dense_size": 19,
@@ -119,97 +112,16 @@ mars-gym run supervised \
   "history_window": 20, 
   "history_word_window": 3,
   "from_index_mapping": false,
-  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
-  "freeze_embedding": true}' \
---data-frames-preparation-extra-params '{
+  "path_item_embedding": "~/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "freeze_embedding": true}' --data-frames-preparation-extra-params '{
   "sample_days": 60, 
   "history_window": 20, 
   "column_stratification": "SessionID",
   "normalize_dense_features": "min_max",
   "min_interactions": 5,
   "filter_only_buy": true,
-  "sample_view": 10000}' \
---optimizer adam \
---optimizer-params '{"weight_decay": 1e-4}' \
---test-size 0.0 \
---val-size 0.1 \
---early-stopping-min-delta 0.0001 \
---test-split-type random \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss"]' \
---generator-workers 0  \
---batch-size 512 \
---loss-function ce \
---epochs 1000 \
---obs "1"
+  "sample_view": 10000}' --optimizer adam --optimizer-params '{"weight_decay": 1e-4}' --test-size 0.0 --val-size 0.1 --early-stopping-min-delta 0.0001 --test-split-type random --dataset-split-method column --learning-rate 0.001 --metrics='["loss"]' --generator-workers 0  --batch-size 512 --loss-function ce --epochs 1000 --obs "1"
 
-PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
---model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____6ce3c531e5 \
---normalize-file-path "5623558488_std_scaler.pkl" \
---history-window 20 \
---batch-size 1000 \
---percent-limit 1 \
---local-scheduler \
---local  
-
-
-{'count': 1000,
- 'mean_average_precision': 0.23992619047619046,
- 'model_task': 'SupervisedModelTraining____mars_gym_model_b____6ce3c531e5',
- 'mrr_at_10': 0.23992619047619046,
- 'mrr_at_5': 0.23723333333333335,
- 'ndcg_at_10': 0.27702327341875604,
- 'ndcg_at_15': 0.27702327341875604,
- 'ndcg_at_20': 0.27702327341875604,
- 'ndcg_at_5': 0.2701096119636571,
- 'ndcg_at_50': 0.27702327341875604,
- 'ndcg_ml': 0.23637290482446024,
- 'percent_limit': 1.0,
- 'precision_at_1': 0.204}
-
-
-#######################################################
-
-PYTHONPATH="."  luigi  \
---module train MercadoLivreTraining  \
---project mercado_livre.config.mercado_livre_narm \
---recommender-module-class model.MLNARMModel2 \
---recommender-extra-params '{
-  "n_factors": 100, 
-  "hidden_size": 200, 
-  "dense_size": 19,
-  "n_layers": 1, 
-  "dropout": 0.2, 
-  "history_window": 20, 
-  "history_word_window": 3,
-  "from_index_mapping": false,
-  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
-  "freeze_embedding": true}' \
---data-frames-preparation-extra-params '{
-  "sample_days": 60, 
-  "history_window": 20, 
-  "column_stratification": "SessionID",
-  "normalize_dense_features": "min_max",
-  "min_interactions": 5,
-  "filter_only_buy": true,
-  "sample_view": 30000}' \
---optimizer adam \
---optimizer-params '{"weight_decay": 1e-4}' \
---test-size 0.0 \
---val-size 0.1 \
---early-stopping-min-delta 0.0001 \
---test-split-type random \
---dataset-split-method column \
---learning-rate 0.001 \
---metrics='["loss"]' \
---generator-workers 0  \
---batch-size 512 \
---loss-function custom_ce \
---epochs 1000 \
---local-scheduler \
---obs "1"
 
 
 
