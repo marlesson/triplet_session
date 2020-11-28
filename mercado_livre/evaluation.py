@@ -470,6 +470,9 @@ class EvaluationSubmission(luigi.Task):
         arr_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/submission_{}.csv'.format(self.requires()[0].task_name), header=None)
         df_sub: pd.DataFrame = pd.read_csv(self.input()[0].path+'/df_submission.csv')
 
+        if not self.local:
+            return
+            
         df['reclist']        = list(arr_sub.values)
         df['domainlist']     = list(df_sub.domainlist_2.apply(eval))
         df['relevance_list'] = df.apply(lambda row: _create_relevance_list(row['reclist'], row['ItemID']),  axis=1)
