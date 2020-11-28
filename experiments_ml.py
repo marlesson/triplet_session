@@ -40,6 +40,8 @@ class NARMModelExperimentRuns(luigi.WrapperTask):
 
     _sample_view = [0, 10000, 100000]
 
+    _history_word_window = [3, 5]
+
     obs       = ""
 
     emb_path = "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin"
@@ -56,7 +58,7 @@ class NARMModelExperimentRuns(luigi.WrapperTask):
       batch_size = int(random_state.choice(_batch_size))
       min_interactions = int(random_state.choice(_min_interactions))
       sample_view = int(random_state.choice(_sample_view))
-
+      history_word_window = int(random_state.choice(_history_word_window))
 
       job = SupervisedModelTraining(
             project="mercado_livre.config.mercado_livre_narm",
@@ -67,6 +69,8 @@ class NARMModelExperimentRuns(luigi.WrapperTask):
               "dense_size": 19,
               "n_layers": n_layers,
               "dropout": dropout,
+              "history_window": hist_size, 
+              "history_word_window": history_word_window,
               "from_index_mapping": False,
               "path_item_embedding": emb_path, 
               "freeze_embedding": freeze_embedding},
