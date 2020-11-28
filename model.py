@@ -12,7 +12,7 @@ from mars_gym.model.abstract import RecommenderModule
 from mars_gym.model.bandit import BanditPolicy
 from mars_gym.torch.init import lecun_normal_init
 import pickle
-
+import gc 
 from numpy.random.mtrand import RandomState
 import random
 
@@ -1378,7 +1378,8 @@ class MLNARMModel2(RecommenderModule):
         #max_rows = 5 #max([len(batch) for batch in target])
         target = [[[]] if len(t) == 0 else [list(i) for i in t][::-1][:max_rows][::-1] for t in target]
         padded = [batch + [[WORD_PAD] * (max_cols)] * (max_rows - len(batch)) for batch in target]
-        tensor = torch.tensor([row + [WORD_PAD] * (max_length - len(row)) for batch in padded for row in batch], device=device).view(-1, max_rows, max_cols)
+        tensor = torch.tensor([row + [WORD_PAD] * (max_length - len(row)) for batch in padded for row in batch], 
+                    device=device, dtype=torch.long, requires_grad=False).view(-1, max_rows, max_cols)
 
         del padded
         del target
@@ -1389,7 +1390,7 @@ class MLNARMModel2(RecommenderModule):
         word_idx          = self.add_pad_word(text_history, device, max_rows=self.history_word_window)
         word_emb          = self.emb_dropout(self.word_emb(word_idx)) # (B, W (5), S (15), E)
         word_mask         = (word_idx != WORD_PAD).float().unsqueeze(1).repeat((1,word_emb.size(3),1,1)).permute(0, 2, 3, 1)
-        
+        del word_idx
         return word_emb, word_mask
 
     def init_hidden(self, batch_size, device):
@@ -1425,7 +1426,8 @@ class MLNARMModel2(RecommenderModule):
 
         word_emb, word_mask = self.word_emb_mod(text_history, device) # (B, W (5), S (15), E)
         word_emb          = self.conv_block(word_emb * word_mask) # (B, K)
-
+        del word_mask
+        
         hidden  = self.init_hidden(seq.size(1), device)
         embs    = self.emb_dropout(self.emb(seq)) #(H, B, E)
 
@@ -1459,7 +1461,7 @@ class MLNARMModel2(RecommenderModule):
         
         item_embs   = self.emb(torch.arange(self._n_items, device=device).long())
         scores      = torch.matmul(c_t, self.b(item_embs).permute(1, 0))
-
+        
         return scores
 
     def recommendation_score(self, session_ids, 
