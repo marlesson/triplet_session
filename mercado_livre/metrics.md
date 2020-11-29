@@ -675,3 +675,88 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
  'ndcg_ml': 0.20656657137586226,
  'percent_limit': 1.0,
  'precision_at_1': 0.189}
+
+ # SupervisedModelTraining____mars_gym_model_b____bc00ab2246
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____bc00ab2246 \
+--normalize-file-path "531ec3fbe5_std_scaler.pkl" \
+--history-window 10 \
+--batch-size 1000 \
+--percent-limit 1 \
+--submission-size 10 \
+--model-eval "model" \
+--local-scheduler \
+--local
+
+{'count': 1000,
+ 'mean_average_precision': 0.18793373015873016,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____bc00ab2246',
+ 'mrr_at_10': 0.18793373015873016,
+ 'mrr_at_5': 0.18421666666666667,
+ 'ndcg_at_10': 0.21660159552206135,
+ 'ndcg_at_15': 0.21660159552206135,
+ 'ndcg_at_20': 0.21660159552206135,
+ 'ndcg_at_5': 0.2071629335215796,
+ 'ndcg_at_50': 0.21660159552206135,
+ 'ndcg_ml': 0.18961893971015223,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.161}
+
+
+# SupervisedModelTraining____mars_gym_model_b____3e5ba9c8d9
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____3e5ba9c8d9 \
+--normalize-file-path "531ec3fbe5_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1001 \
+--percent-limit 1 \
+--submission-size 10 \
+--model-eval "model" \
+--local-scheduler \
+--local
+
+{'count': 1000,
+ 'mean_average_precision': 0.27332936507936506,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____3e5ba9c8d9',
+ 'mrr_at_10': 0.27332936507936506,
+ 'mrr_at_5': 0.2702333333333333,
+ 'ndcg_at_10': 0.3181702514588528,
+ 'ndcg_at_15': 0.3181702514588528,
+ 'ndcg_at_20': 0.3181702514588528,
+ 'ndcg_at_5': 0.31004857327545277,
+ 'ndcg_at_50': 0.3181702514588528,
+ 'ndcg_ml': 0.2920660071803949,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.23}
+
+ # SupervisedModelTraining____mars_gym_model_b____88e24a6d74
+
+ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____88e24a6d74 \
+--normalize-file-path "de5fba12f2_std_scaler.pkl" \
+--history-window 30 \
+--batch-size 1001 \
+--percent-limit 1 \
+--submission-size 10 \
+--model-eval "model" \
+--local-scheduler \
+--local
+
+{'count': 1000,
+ 'mean_average_precision': 0.23572579365079366,
+ 'model_task': 'SupervisedModelTraining____mars_gym_model_b____88e24a6d74',
+ 'mrr_at_10': 0.23572579365079366,
+ 'mrr_at_5': 0.23323333333333332,
+ 'ndcg_at_10': 0.26259291193207446,
+ 'ndcg_at_15': 0.26259291193207446,
+ 'ndcg_at_20': 0.26259291193207446,
+ 'ndcg_at_5': 0.25610961196365706,
+ 'ndcg_at_50': 0.26259291193207446,
+ 'ndcg_ml': 0.22844805390617307,
+ 'percent_limit': 1.0,
+ 'precision_at_1': 0.21}

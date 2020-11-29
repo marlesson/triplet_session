@@ -76,6 +76,8 @@ WORD_UNK  = 18751
 WORD_PAD  = 18752
 WORD_DICT = 18753
 
+DEFAULT_TEST_SIZE = 1
+
 DATA_COLUMNS =  ["SessionID",
                 "ItemID",
                 "domain_idx",
@@ -285,7 +287,7 @@ from pyspark.sql.types import TimestampType
 parse_date =  udf (lambda x: parse(x), TimestampType())
 
 class PreProcessSessionDataset(BasePySparkTask):
-    test_size: int = luigi.IntParameter(default=100 if DEBUG else 1000)
+    test_size: int = luigi.IntParameter(default=100 if DEBUG else DEFAULT_TEST_SIZE)
 
     def output(self):
         return luigi.LocalTarget(os.path.join(DATASET_DIR, "session_train_dataset.csv")),\
@@ -1072,14 +1074,19 @@ class SessionInteractionDataFrame(BasePrepareDataFrames):
                     _sample_view_size = int(self.sample_view * (1-_val_size))
                 
                 df_buy  = df[df['event_type_idx'] == ML_BUY] # buy
-                df_view = df[df['event_type_idx'] != ML_BUY].sample(_sample_view_size, random_state=42) # view
+                df_view = self.sample_balance_df(df[df['event_type_idx'] != ML_BUY], _sample_view_size) # view
 
                 df = pd.concat([df_buy, df_view])
             else:
                 df = df[df['event_type_idx'] == ML_BUY] # buy
 
         return df
-
+    
+    def sample_balance_df(self, df, n_samples, state=42):
+        #col = 'ItemID'
+        df['sample_weights'] = 1/df['domain_count']
+        return df.sample(n_samples, weights='sample_weights', random_state=state)
+        
 #################################  Triplet ##############################
 
 def serach_positive(uid, df, max_deep = 1, deep = 0, list_pos = []):
