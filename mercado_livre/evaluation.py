@@ -66,7 +66,8 @@ from train import MostPopularTraining, CoOccurrenceTraining
 ITEM_META_PATH = "output/mercado_livre/dataset/item__processed.csv"
 
 
-def ndcg_ml(r):
+def ndcg_ml(r, k =10):
+    r = r[:k]
     pos = np.array(range(len(r))) + 1
     
     reclist_i = np.ones(len(r))
@@ -561,7 +562,7 @@ class EvaluationSubmission(luigi.Task):
             print("Calculating nDCGML...")
             df["ndcg_ml"] = list(
                 tqdm(
-                    p.map(functools.partial(ndcg_ml), df["relevance_list_ml"]),
+                    p.map(functools.partial(ndcg_ml, k=50), df["relevance_list_ml"]),
                     total=len(df),
                 )
             )

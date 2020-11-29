@@ -167,6 +167,17 @@ Embs: 57880,   "sample_view": 30000
     "ndcg_ml": 0.2915108439658228
 }
 
+# Ensamble - final_submission_dowdall - 6ce3c531e5 - b4197a226b - 1da67a8f8e - c179ab54fa
+
+Ensamble 
+ML: 0.21576
+
+
+# Ensamble - final_submission_borda - 6ce3c531e5 - b4197a226b - 1da67a8f8e - c179ab54fa
+
+Ensamble com pos processamento de 0.4
+
+ML: 0.22528
 
 ## Submission
 
@@ -195,8 +206,46 @@ mars-gym run supervised \
   "min_interactions": 5,
   "filter_only_buy": true,
   "sample_view": 10000}' \
---optimizer radam \
---optimizer-params '{"weight_decay": 1e-05}' \
+--optimizer adam \
+--optimizer-params '{"weight_decay": 1e-4}' \
+--test-size 0.0 \
+--val-size 0.1 \
+--early-stopping-min-delta 0.0001 \
+--test-split-type random \
+--dataset-split-method column \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 5  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 1000 \
+--obs "1"
+
+
+mars-gym run supervised \
+--project mercado_livre.config.mercado_livre_narm \
+--recommender-module-class model.MLNARMModel2 \
+--recommender-extra-params '{
+  "n_factors": 100, 
+  "hidden_size": 200, 
+  "dense_size": 19,
+  "n_layers": 1, 
+  "dropout": 0.2, 
+  "history_window": 20, 
+  "history_word_window": 3,
+  "from_index_mapping": false,
+  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "freeze_embedding": true}' \
+--data-frames-preparation-extra-params '{
+  "sample_days": 60, 
+  "history_window": 20, 
+  "column_stratification": "SessionID",
+  "normalize_dense_features": "min_max",
+  "min_interactions": 5,
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+--optimizer adam \
+--optimizer-params '{"weight_decay": 1e-4}' \
 --test-size 0.0 \
 --val-size 0.1 \
 --early-stopping-min-delta 0.0001 \
@@ -210,14 +259,99 @@ mars-gym run supervised \
 --batch-size 512 \
 --loss-function ce \
 --epochs 100 \
---obs "k_fold@1 "
+--obs "kfold@1"
+
+
+
+mars-gym run supervised \
+--project mercado_livre.config.mercado_livre_narm \
+--recommender-module-class model.MLNARMModel2 \
+--recommender-extra-params '{
+  "n_factors": 100, 
+  "hidden_size": 200, 
+  "dense_size": 19,
+  "n_layers": 1, 
+  "dropout": 0.2, 
+  "history_window": 20, 
+  "history_word_window": 3,
+  "from_index_mapping": false,
+  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "freeze_embedding": true}' \
+--data-frames-preparation-extra-params '{
+  "sample_days": 60, 
+  "history_window": 20, 
+  "column_stratification": "SessionID",
+  "normalize_dense_features": "min_max",
+  "min_interactions": 5,
+  "filter_only_buy": true,
+  "sample_view": 10000}' \
+--optimizer adam \
+--optimizer-params '{"weight_decay": 1e-4}' \
+--test-size 0.0 \
+--val-size 0.1 \
+--early-stopping-min-delta 0.0001 \
+--test-split-type random \
+--dataset-split-method k_fold \
+--n-splits 5 \
+--split-index 1 \
+--learning-rate 0.001 \
+--metrics='["loss"]' \
+--generator-workers 5  \
+--batch-size 512 \
+--loss-function ce \
+--epochs 100 \
+--obs "kfold@2"
 
 ### Generate submission with 100 registros cada, dá 6 arquivos.
 ### é bom testar local
 
+SupervisedModelTraining____mars_gym_model_b____c179ab54fa
+SupervisedModelTraining____mars_gym_model_b____1da67a8f8e
+SupervisedModelTraining____mars_gym_model_b____b4197a226b
+SupervisedModelTraining____mars_gym_model_b____6ce3c531e5
+
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____897c16bdda \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____c179ab54fa \
+--normalize-file-path "7cef5bca66_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--percent-limit 1 \
+--local-scheduler \
+--submission-size 100 \
+--model-eval "model" \
+--local
+
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____1da67a8f8e \
+--normalize-file-path "960f0cb112_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--percent-limit 1 \
+--local-scheduler \
+--submission-size 100 \
+--model-eval "model" \
+--local  
+
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____b4197a226b \
+--normalize-file-path "768d27bebe_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--percent-limit 1 \
+--local-scheduler \
+--submission-size 100 \
+--model-eval "model" \
+--local  
+
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____6ce3c531e5 \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -226,6 +360,23 @@ PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --submission-size 100 \
 --model-eval "model" \
 --local  
+
+##
+
+PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
+--model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____6ce3c531e5 \
+--normalize-file-path "7cef5bca66_std_scaler.pkl" \
+--history-window 20 \
+--batch-size 1000 \
+--percent-limit 1 \
+--local-scheduler \
+--submission-size 100 \
+--model-eval "model" \
+--eval-reclist mercado_livre/data/final_submission_dowdall.csv \
+--local
+
+
 
 ### Unificar o ensamble com notebook "Rank Ensamble", gera 4 arquivos devido as estratégias
 ### instant_runoff, borda, dowdall, average_rank
