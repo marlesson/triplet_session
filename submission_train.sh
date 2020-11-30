@@ -36,6 +36,7 @@ mars-gym run supervised \
   "normalize_dense_features": "min_max",
   "min_interactions": 5,
   "filter_only_buy": true,
+  "sample_balance": true,
   "sample_view": 300000}' \
 --optimizer adam \
 --optimizer-params '{"weight_decay": 1e-4}' \
@@ -79,7 +80,8 @@ for f in 0 1 2 3 4; do
     "normalize_dense_features": "min_max",
     "min_interactions": 5,
     "filter_only_buy": true,
-    "sample_view": 10000}' \
+    "sample_balance": true,
+    "sample_view": 300000}' \
   --optimizer adam \
   --optimizer-params '{"weight_decay": 1e-4}' \
   --test-size 0.0 \

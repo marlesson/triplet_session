@@ -78,7 +78,7 @@ SupervisedModelTraining____mars_gym_model_b____dfeb3adddb
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____bec91f5e17 \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____06e74a0146 \
 --normalize-file-path "5623558488_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
@@ -112,7 +112,7 @@ mars-gym run supervised --project mercado_livre.config.mercado_livre_narm --reco
   "history_window": 20, 
   "history_word_window": 3,
   "from_index_mapping": false,
-  "path_item_embedding": "~/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
+  "path_item_embedding": "/media/workspace/triplet_session/output/mercado_livre/assets/mercadolivre-100d.bin", 
   "freeze_embedding": true}' --data-frames-preparation-extra-params '{
   "sample_days": 60, 
   "history_window": 20, 

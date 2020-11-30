@@ -1,3 +1,5 @@
+*.csv
+
 # Project
 output/
 mlruns/

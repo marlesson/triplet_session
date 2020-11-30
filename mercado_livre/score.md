@@ -246,6 +246,7 @@ mars-gym run supervised \
   "normalize_dense_features": "min_max",
   "min_interactions": 5,
   "filter_only_buy": true,
+  "sample_balance": true,
   "sample_view": 300000}' \
 --optimizer adam \
 --optimizer-params '{"weight_decay": 1e-4}' \
@@ -346,33 +347,29 @@ mars-gym run supervised \
 ### Generate submission with 100 registros cada, dá 6 arquivos.
 ### é bom testar local
 
-SupervisedModelTraining____mars_gym_model_b____c179ab54fa
-SupervisedModelTraining____mars_gym_model_b____1da67a8f8e
-SupervisedModelTraining____mars_gym_model_b____b4197a226b
-SupervisedModelTraining____mars_gym_model_b____6ce3c531e5
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____8c0218583b \
---normalize-file-path "8d1e4c7347_std_scaler.pkl" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____00e79de4d4 \
+--normalize-file-path "0d34812670_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
 --percent-limit 1 \
 --local-scheduler \
---submission-size 100 \
+--submission-size 10 \
 --model-eval "model" \
 --local
 
 
 PYTHONPATH="." luigi --module mercado_livre.evaluation EvaluationSubmission \
 --model-task-class "mars_gym.simulation.training.SupervisedModelTraining" \
---model-task-id SupervisedModelTraining____mars_gym_model_b____623d8d73b4 \
---normalize-file-path "56be7fb7bd_std_scaler.pkl" \
+--model-task-id SupervisedModelTraining____mars_gym_model_b____868b35f5c6 \
+--normalize-file-path "ae9eea4edd_std_scaler.pkl" \
 --history-window 20 \
 --batch-size 1000 \
 --percent-limit 1 \
 --local-scheduler \
---submission-size 100 \
+--submission-size 10 \
 --model-eval "model" \
 --local  
 
